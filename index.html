@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Neon Drift</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#0a0a12;overflow:hidden}
+/* 启动画面覆盖在 canvas 之上 */
+#start-screen{
+  position:fixed;inset:0;z-index:10;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+}
+/* 标题玻璃板 */
+#start-screen h1{
+  color:#00FFFF;font-size:clamp(2em,6vw,3.5em);
+  text-shadow:0 0 20px #00FFFF,0 0 40px #00FFFF;
+  margin-bottom:16px;
+  background:rgba(10,10,18,0.6);
+  padding:12px 32px;
+  border-radius:8px;
+  backdrop-filter:blur(8px);
+}
+/* 副标题 */
+#start-screen p{
+  color:#888;font-size:clamp(0.9em,2vw,1.2em);
+  margin-bottom:32px;text-align:center;
+  background:rgba(10,10,18,0.5);
+  padding:6px 20px;
+  border-radius:4px;
+}
+/* 脉冲提示文字 */
+#start-screen .hint{
+  color:#FF00FF;font-size:clamp(1em,3vw,1.5em);
+  animation:pulse 1.5s infinite;
+  margin-bottom:24px;
+}
+/* 开始按钮 */
+#start-btn{
+  background:linear-gradient(135deg,#00FFFF,#FF00FF);
+  border:none;padding:14px 40px;font-size:1.1em;
+  color:#0a0a12;border-radius:30px;cursor:pointer;
+  box-shadow:0 0 20px rgba(0,255,255,0.4);
+  margin-bottom:24px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* 提示文字 */
+#start-screen .tips{
+  color:#555;font-size:0.85em;line-height:1.6;text-align:center;
+}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+</style>
+</head>
+<body>
+<div id="start-screen">
+<h1>NEON DRIFT</h1>
+<p>霓虹漂移 — 倾斜手机控制光球</p>
+<div class="hint">TILT TO PLAY</div>
+<button id="start-btn">开始游戏</button>
+<div class="tips">
+手机：倾斜设备控制 &nbsp;|&nbsp; PC：WASD / 方向键 &nbsp;|&nbsp; 空格：冲击波
+</div>
+</div>
+
+<!-- LittleJS 引擎 (CDN) -->
+<script src="littlejs.js"></script>
+<!-- 游戏模块 -->
+<script src="sensor.js"></script>
+<script src="particles.js"></script>
+<script src="levels/level1.js"></script>
+<script src="levels/level2.js"></script>
+<script src="levels/level3.js"></script>
+<script src="game.js"></script>
+<script>
+document.getElementById('start-btn').addEventListener('pointerdown', function(e) {
+  e.preventDefault();
+  document.getElementById('start-screen').style.display = 'none';
+  window.startGame();
+});
+</script>
+</body>
+</html>
