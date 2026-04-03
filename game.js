@@ -158,39 +158,33 @@ class Ball extends EngineObject {
     const spd = this.velocity.length();
     if (spd > this.speed) this.velocity = this.velocity.normalize().scale(this.speed);
 
-    // 尝试移动
-    const newPos = this.pos.copy();
-    newPos.x += this.velocity.x;
-    newPos.y += this.velocity.y;
-
-    // 碰撞检测
-    if (isWall(worldToTile(newPos))) {
-      // 墙体碰撞
-      const oldPos = this.pos.copy();
-      const nx = newPos.x, ny = this.pos.y;
-      const ny_tile = worldToTile(vec2(nx, ny));
-      if (!isWall(ny_tile)) {
-        this.velocity.x *= -.5;
-        this.pos.x = nx;
-        const normal = vec2(nx > this.pos.x ? -1 : 1, 0);
-        emitSparks(this.pos, normal);
-      } else {
-        const nnx = this.pos.x, nny = newPos.y;
-        const nn_tile = worldToTile(vec2(nnx, nny));
-        if (!isWall(nn_tile)) {
-          this.velocity.y *= -.5;
-          this.pos.y = nny;
-          const normal = vec2(0, nny > this.pos.y ? -1 : 1);
-          emitSparks(this.pos, normal);
-        } else {
-          // 角落
-          this.velocity.x *= -.5;
-          this.velocity.y *= -.5;
-        }
-      }
+    // 轴分离碰撞检测：先处理 X 轴
+    const newX = this.pos.x + this.velocity.x;
+    if (!this._overlapsWall(newX, this.pos.y)) {
+      this.pos.x = newX;
     } else {
-      this.pos.x = newPos.x;
-      this.pos.y = newPos.y;
+      // X 轴撞墙：反弹并找边界
+      this.velocity.x *= -.5;
+      const boundary = this._findWallBoundary(this.pos.x, this.pos.y, Math.sign(this.velocity.x) || 1, 0);
+      this.pos.x = boundary;
+      emitSparks(vec2(this.pos.x, this.pos.y), vec2(Math.sign(this.pos.x - boundary) || -this.velocity.x, 0));
+    }
+
+    // 再处理 Y 轴
+    const newY = this.pos.y + this.velocity.y;
+    if (!this._overlapsWall(this.pos.x, newY)) {
+      this.pos.y = newY;
+    } else {
+      // Y 轴撞墙：反弹并找边界
+      this.velocity.y *= -.5;
+      const boundary = this._findWallBoundary(this.pos.x, this.pos.y, 0, Math.sign(this.velocity.y) || 1);
+      this.pos.y = boundary;
+      emitSparks(vec2(this.pos.x, this.pos.y), vec2(0, Math.sign(this.pos.y - boundary) || -this.velocity.y));
+    }
+
+    // 安全措施：如果仍然卡在墙内，强制推送到最近空位
+    if (this._overlapsWall(this.pos.x, this.pos.y)) {
+      this._pushOutOfWall();
     }
 
     // 晶体收集
@@ -258,6 +252,76 @@ class Ball extends EngineObject {
     // 呼吸效果
     const pulse = 0.05 * Math.sin(breathePhase);
     drawCircle(this.pos, this.radius + pulse, rgb(0.3, 1, 1, 0.4));
+  }
+
+  /** 检查球在指定位置是否与墙壁重叠（检查球周围的多个点） */
+  _overlapsWall(x, y) {
+    const r = this.radius * 0.95;
+    const checks = [
+      [x, y],
+      [x + r, y], [x - r, y],
+      [x, y + r], [x, y - r],
+      [x + r * 0.7, y + r * 0.7], [x - r * 0.7, y - r * 0.7],
+      [x + r * 0.7, y - r * 0.7], [x - r * 0.7, y + r * 0.7],
+    ];
+    for (const [cx, cy] of checks) {
+      if (isWall(worldToTile(vec2(cx, cy)))) return true;
+    }
+    return false;
+  }
+
+  /** 沿指定方向找到最近的墙壁边界位置 */
+  _findWallBoundary(x, y, dirX, dirY) {
+    const step = 0.05;
+    const limit = 5;
+    if (dirX === 0 && dirY === 0) return y;
+    if (dirX !== 0) {
+      // 水平方向找墙边界
+      const sign = dirX > 0 ? 1 : -1;
+      let cx = x;
+      for (let i = 0; i < limit; i++) {
+        cx += sign * step;
+        if (!isWall(worldToTile(vec2(cx + this.radius * sign, y)))) {
+          return cx;
+        }
+      }
+      // 回退到安全距离
+      return x - sign * (this.radius + 0.01);
+    } else {
+      // 垂直方向找墙边界
+      const sign = dirY > 0 ? 1 : -1;
+      let cy = y;
+      for (let i = 0; i < limit; i++) {
+        cy += sign * step;
+        if (!isWall(worldToTile(vec2(x, cy + this.radius * sign)))) {
+          return cy;
+        }
+      }
+      return y - sign * (this.radius + 0.01);
+    }
+  }
+
+  /** 如果球卡在墙内，强制将其推出到最近的安全位置 */
+  _pushOutOfWall() {
+    const r = this.radius + 0.02;
+    const angles = 16;
+    for (let i = 0; i < angles; i++) {
+      const angle = (i / angles) * Math.PI * 2;
+      const testX = this.pos.x + Math.cos(angle) * r;
+      const testY = this.pos.y + Math.sin(angle) * r;
+      if (!isWall(worldToTile(vec2(testX, testY)))) {
+        this.pos.x = testX;
+        this.pos.y = testY;
+        this.velocity.x *= 0.3;
+        this.velocity.y *= 0.3;
+        return;
+      }
+    }
+    // 终极回退：直接移到上一帧位置
+    this.pos.x -= this.velocity.x * 2;
+    this.pos.y -= this.velocity.y * 2;
+    this.velocity.x = 0;
+    this.velocity.y = 0;
   }
 }
 
