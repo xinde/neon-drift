@@ -57,9 +57,15 @@ class SensorInput {
         typeof DeviceOrientationEvent.requestPermission === 'function') {
       try {
         const perm = await DeviceOrientationEvent.requestPermission();
-        return perm === 'granted';
+        if (perm === 'granted') {
+          console.log('Sensor permission granted');
+          return true;
+        } else {
+          console.warn('Sensor permission denied:', perm);
+          return false;
+        }
       } catch (e) {
-        console.warn('Sensor permission denied:', e);
+        console.warn('Sensor permission error:', e);
         return false;
       }
     }
@@ -67,10 +73,15 @@ class SensorInput {
     return true;
   }
 
-  /** 启动传感器监听（仅在设备支持时） */
+  /** 启动传感器监听（仅在设备支持时，可安全重复调用） */
   start() {
+    // 防止重复启动
+    if (this.enabled) return;
     // 检查设备是否支持传感器事件
-    if (typeof DeviceOrientationEvent === 'undefined') return;
+    if (typeof DeviceOrientationEvent === 'undefined') {
+      console.warn('DeviceOrientationEvent not supported');
+      return;
+    }
     window.addEventListener('deviceorientation', (e) => this._onOrientation(e), true);
     window.addEventListener('devicemotion', (e) => this._onMotion(e), true);
     this.enabled = true;
@@ -125,7 +136,7 @@ class SensorInput {
   }
 
   _onOrientation(e) {
-    if (e.alpha === null) return;
+    if (e.alpha === null && e.beta === null && e.gamma === null) return;
 
     // 修复 alpha 角 0/360° 环绕问题：计算最短角距离
     let dAlpha = e.alpha - this._prevAlpha;
@@ -133,8 +144,12 @@ class SensorInput {
     else if (dAlpha < -180) dAlpha += 360;
     this.alpha = this._prevAlpha + dAlpha * this._filterAlpha;
 
-    this.beta  = this._filterBeta  * e.beta  + (1 - this._filterBeta)  * this._prevBeta;
-    this.gamma = this._filterGamma * e.gamma + (1 - this._filterGamma) * this._prevGamma;
+    // 防护 null 值（部分浏览器在锁屏/应用切换时可能发送 null）
+    const beta = e.beta ?? this._prevBeta;
+    const gamma = e.gamma ?? this._prevGamma;
+
+    this.beta  = this._filterBeta  * beta  + (1 - this._filterBeta)  * this._prevBeta;
+    this.gamma = this._filterGamma * gamma + (1 - this._filterGamma) * this._prevGamma;
     this._prevAlpha = this.alpha;
     this._prevBeta  = this.beta;
     this._prevGamma = this.gamma;
