@@ -77,7 +77,9 @@ html,body{width:100%;height:100%;background:#0a0a12;overflow:hidden}
 <script src="levels/level3.js"></script>
 <script src="game.js"></script>
 <script>
-document.getElementById('start-btn').addEventListener('pointerdown', function(e) {
+// 使用 click 事件确保 iOS 权限请求有效
+// touchInputEnable=true 时 LittleJS 会自动处理触摸转鼠标输入
+document.getElementById('start-btn').addEventListener('click', function(e) {
   e.preventDefault();
   document.getElementById('start-screen').style.display = 'none';
   window.startGame();

@@ -528,6 +528,9 @@ window.startGame = async function() {
     const granted = await sensor.requestPermission();
     if (granted) {
       sensor.start();
+      console.log('Sensor started successfully');
+    } else {
+      console.warn('Sensor permission denied - gyro control will not work');
     }
   }
   // 切换到校准流程
@@ -660,6 +663,6 @@ canvasPixelated = true;           // 像素风格
 showSplashScreen = false;         // 禁用启动画面
 cameraScale = 20;                  // 缩放比例
 touchGamepadEnable = false;        // 禁用虚拟游戏手柄（使用自定义 UI）
-touchInputEnable = false;          // 禁用 LittleJS 内置触摸处理，让触摸事件通过鼠标路径
+// 注意：touchInputEnable 保持默认 true，让 LittleJS 处理触摸转鼠标输入
 
 engineInit(gameInit, gameUpdate, gameUpdatePost, gameRender, gameRenderPost, [], document.body);
