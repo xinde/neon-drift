@@ -660,5 +660,6 @@ canvasPixelated = true;           // 像素风格
 showSplashScreen = false;         // 禁用启动画面
 cameraScale = 20;                  // 缩放比例
 touchGamepadEnable = false;        // 禁用虚拟游戏手柄（使用自定义 UI）
+touchInputEnable = false;          // 禁用 LittleJS 内置触摸处理，让触摸事件通过鼠标路径
 
 engineInit(gameInit, gameUpdate, gameUpdatePost, gameRender, gameRenderPost, [], document.body);
