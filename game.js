@@ -525,8 +525,13 @@ function gameInit() {
 window.startGame = async function() {
   // 请求传感器权限（iOS 13+ 需要用户手势触发）
   if (sensor) {
-    const granted = await sensor.requestPermission();
-    if (granted) {
+    // 添加超时保护：某些设备上 requestPermission 可能永不 resolve
+    const permissionPromise = sensor.requestPermission();
+    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('timeout'), 2000));
+    const granted = await Promise.race([permissionPromise, timeoutPromise]);
+    if (granted === 'timeout') {
+      console.warn('Sensor permission request timed out - continuing without gyro');
+    } else if (granted) {
       sensor.start();
       console.log('Sensor started successfully');
     } else {
