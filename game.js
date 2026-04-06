@@ -449,6 +449,39 @@ function drawHUD() {
     const fpsAvg = fpsHistory.length > 0 ? fpsHistory.reduce((a, b) => a + b, 0) / fpsHistory.length : 0;
     drawTextScreen('LOW-PWR ' + Math.round(fpsAvg) + 'fps', vec2(20, 55), 24, rgb(1, 0.3, 0.3));
   }
+
+  // 调试信息显示（手机端调试用）
+  drawDebug();
+}
+
+/** 绘制调试信息浮层 */
+function drawDebug() {
+  if (!sensor) return;
+  const debugX = 20;
+  const debugY = 90;
+  const lineHeight = 22;
+  let y = debugY;
+
+  // 背景半透明遮罩
+  const debugInfo = [
+    '--- SENSOR DEBUG ---',
+    'alpha: ' + (sensor.alpha ?? 'null').toFixed(1),
+    'beta: ' + (sensor.beta ?? 'null').toFixed(1),
+    'gamma: ' + (sensor.gamma ?? 'null').toFixed(1),
+    '--- TILT VECTOR ---',
+    'tilt: (' + (sensor.getTiltVector().x ?? 0).toFixed(3) + ', ' + (sensor.getTiltVector().y ?? 0).toFixed(3) + ')',
+    '--- STATUS ---',
+    'sensor.enabled: ' + sensor.enabled,
+    'calibrated: ' + sensor._calibrated,
+    'gameState: ' + gameState,
+  ];
+
+  // 使用 LittleJS 的 drawTextScreen 绘制（屏幕坐标）
+  for (const line of debugInfo) {
+    const isHeader = line.startsWith('---');
+    drawTextScreen(line, vec2(debugX, y), 16, isHeader ? rgb(1, 0.8, 0) : rgb(0.5, 1, 0.5));
+    y += lineHeight;
+  }
 }
 
 function drawWin() {
