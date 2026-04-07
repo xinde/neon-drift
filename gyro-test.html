@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Gyro Test</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a12;overflow:hidden}
+canvas{display:block}
+</style>
+</head>
+<body>
+<script src="littlejs.js"></script>
+<script src="sensor.js"></script>
+<script>
+// ============ 最小化陀螺仪测试 (LittleJS + sensor.js) ============
+function pad(n, w) { return String(n).padStart(w); }
+
+let sensor = null;
+let ballX, ballY, ballVX, ballVY;
+let ballRadius = 0.3;
+const FRICTION = 0.94;
+const ACCEL = 15;
+const MAX_SPEED = 6;
+const BOUNDARY = 8; // 世界坐标边界
+
+let statusText = 'TAP TO START';
+let statusColor = rgb(1, 1, 0);
+let started = false;
+
+// 世界坐标：宽 16，高 10，相机居中
+cameraScale = 50;
+
+function initTest() {
+  sensor = new SensorInput();
+  ballX = 8;
+  ballY = 5;
+  ballVX = 0;
+  ballVY = 0;
+  cameraPos = vec2(8, 5);
+}
+
+function gameInit() {
+  initTest();
+  showSplashScreen = false;
+  canvasMaxSize = vec2(9999, 9999);
+  canvasPixelated = false;
+
+  // 点击启动
+  canvas.addEventListener('pointerdown', onPointer, { once: false });
+}
+
+function onPointer() {
+  if (!started) {
+    started = true;
+    sensor.start();
+    statusText = 'STARTING...';
+    statusColor = rgb(0.5, 0.5, 0.5);
+
+    // iOS 13+
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      DeviceOrientationEvent.requestPermission()
+        .then(r => { statusText = r === 'granted' ? 'ACTIVE' : 'DENIED'; })
+        .catch(() => { statusText = 'DENIED'; });
+    } else {
+      setTimeout(() => {
+        statusText = sensor.enabled ? 'ACTIVE' : 'NO_HTTPS';
+        statusColor = sensor.enabled ? rgb(0.2, 1, 0.4) : rgb(1, 0.4, 0);
+      }, 500);
+    }
+  }
+}
+
+function gameUpdate() {
+  if (!started) return;
+
+  // 读取陀螺仪
+  let gx = 0, gy = 0;
+  if (sensor && sensor.enabled) {
+    const t = sensor.getTiltVector();
+    gx = t.x;
+    gy = t.y;
+  }
+
+  // 施加加速度
+  ballVX += gx * ACCEL * timeDelta;
+  ballVY += gy * ACCEL * timeDelta;
+
+  // 摩擦
+  ballVX *= FRICTION;
+  ballVY *= FRICTION;
+
+  // 速度限制
+  const spd = Math.sqrt(ballVX * ballVX + ballVY * ballVY);
+  if (spd > MAX_SPEED) {
+    ballVX = ballVX / spd * MAX_SPEED;
+    ballVY = ballVY / spd * MAX_SPEED;
+  }
+
+  // 移动
+  ballX += ballVX * timeDelta;
+  ballY -= ballVY * timeDelta; // Y轴反向
+
+  // 边界反弹
+  if (ballX < ballRadius) { ballX = ballRadius; ballVX *= -0.5; }
+  if (ballX > BOUNDARY - ballRadius) { ballX = BOUNDARY - ballRadius; ballVX *= -0.5; }
+  if (ballY < ballRadius) { ballY = ballRadius; ballVY *= -0.5; }
+  if (ballY > 10 - ballRadius) { ballY = 10 - ballRadius; ballVY *= -0.5; }
+
+  // 相机跟随
+  cameraPos.x += (ballX - cameraPos.x) * 3 * timeDelta;
+  cameraPos.y += (ballY - cameraPos.y) * 3 * timeDelta;
+}
+
+function gameRender() {
+  // 背景
+  drawRect(vec2(8, 5), vec2(BOUNDARY, 10), rgb(0.04, 0.04, 0.07));
+
+  // 网格
+  ctx.save();
+  ctx.globalAlpha = 0.15;
+  for (let x = 0; x <= BOUNDARY; x++) {
+    drawLine(vec2(x, 0), vec2(x, 10), rgb(0, 1, 1), 0.02);
+  }
+  for (let y = 0; y <= 10; y++) {
+    drawLine(vec2(0, y), vec2(BOUNDARY, y), rgb(0, 1, 1), 0.02);
+  }
+  ctx.restore();
+
+  // 边界框
+  drawRect(vec2(BOUNDARY / 2, 5), vec2(BOUNDARY, 10), rgb(0, 0.3, 0.5), 0, 0);
+
+  if (!started) {
+    drawTextScreen('GYRO TEST', vec2(canvas.width / 2, canvas.height * 0.35), 48, rgb(0, 1, 1));
+    drawTextScreen('TAP ANYWHERE TO START', vec2(canvas.width / 2, canvas.height * 0.5), 24, rgb(0.5, 0.5, 0.5));
+    drawTextScreen('Tilt device to move ball', vec2(canvas.width / 2, canvas.height * 0.58), 18, rgb(0.3, 0.3, 0.3));
+    return;
+  }
+
+  // 球体外晕
+  drawCircle(vec2(ballX, ballY), ballRadius * 1.8, rgb(0, 0.8, 1, 0.2));
+  drawCircle(vec2(ballX, ballY), ballRadius * 1.3, rgb(0, 1, 1, 0.3));
+
+  // 球体核心
+  drawCircle(vec2(ballX, ballY), ballRadius, rgb(0.9, 1, 1));
+  drawCircle(vec2(ballX, ballY), ballRadius * 0.5, rgb(1, 1, 1, 0.9));
+}
+
+function gameRenderUI() {
+  // 状态标签
+  const col = started && sensor && sensor.enabled ? rgb(0.2, 1, 0.4) : rgb(1, 1, 0);
+  drawTextScreen(statusText, vec2(canvas.width / 2, 30), 20, col);
+
+  // 数值显示
+  if (started && sensor && sensor.enabled) {
+    const t = sensor.getTiltVector();
+    const lines = [
+      `gx:${pad(t.x.toFixed(3),7)}  gy:${pad(t.y.toFixed(3),7)}`,
+      `vx:${pad(ballVX.toFixed(2),6)}  vy:${pad(ballVY.toFixed(2),6)}`,
+    ];
+    ctx.save();
+    ctx.font = '14px monospace';
+    ctx.fillStyle = '#00FFFF';
+    ctx.textAlign = 'center';
+    ctx.fillText(lines[0], canvas.width / 2, canvas.height - 50);
+    ctx.fillText(lines[1], canvas.width / 2, canvas.height - 32);
+    ctx.restore();
+  }
+}
+
+// 启动引擎
+canvasMaxSize = vec2(9999, 9999);
+canvasPixelated = false;
+showSplashScreen = false;
+cameraScale = 50;
+engineInit(gameInit, gameUpdate, null, gameRender, gameRenderUI);
+</script>
+</body>
+</html>
