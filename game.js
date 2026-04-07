@@ -37,6 +37,13 @@ let currentLevelIndex = 0;
 const LEVELS = [LEVEL_1, LEVEL_2, LEVEL_3];
 let lives = 3;
 let sensor = null;
+let sensorAvailable = false;   // 传感器是否可用
+let sensorStatus = 'INIT';     // INIT | NO_HTTPS | TIMEOUT | DENIED | ACTIVE
+// 虚拟摇杆（传感器不可用时的触摸后备）
+let _joystickActive = false;   // 是否正在触摸摇杆区域
+let _joystickOrigin = vec2(0, 0);  // 摇杆中心（屏幕坐标）
+let _joystickVec = vec2(0, 0);     // 归一化摇杆方向 [-1, 1]
+let _joystickRadius = 60;     // 摇杆最大半径（像素）
 let keyboardInput = vec2(0, 0);
 let shockwaveKeyDown = false;
 let _screenClicked = false; // 单帧点击标志，防止重复触发
@@ -139,8 +146,14 @@ class Ball extends EngineObject {
   }
 
   update() {
-    // 获取输入（传感器优先，键盘辅助/桌面端备用）
-    let sensorVec = sensor && sensor.enabled ? sensor.getTiltVector() : vec2(0, 0);
+    // 获取输入：传感器优先，无传感器时使用虚拟摇杆，PC 端使用键盘
+    let sensorVec = vec2(0, 0);
+    if (sensor && sensor.enabled) {
+      sensorVec = sensor.getTiltVector();
+    } else if (_joystickActive) {
+      // 虚拟摇杆：Y轴反向（屏幕向下为正，转为游戏向上为正）
+      sensorVec = vec2(_joystickVec.x, -_joystickVec.y);
+    }
     let input = vec2(
       clamp(sensorVec.x + keyboardInput.x, -1, 1),
       clamp(sensorVec.y + keyboardInput.y, -1, 1)
@@ -432,9 +445,33 @@ function drawSplash() {
 }
 
 function drawCalibrate() {
-  drawTextScreen('CALIBRATE', vec2(_cx(), _cy()), 3, rgb(1, 1, 0));
-  drawTextScreen('Hold phone steady and tap', vec2(_cx(), _cy() + 60), 1.5, rgb(0.8, 0.8, 1));
-  drawTextScreen('[ TAP TO CALIBRATE ]', vec2(_cx(), _cy() + 100), 1.5, rgb(0, 1, 1));
+  drawTextScreen('CALIBRATE', vec2(_cx(), _cy() - 60), 3, rgb(1, 1, 0));
+  drawTextScreen('Hold phone steady and tap', vec2(_cx(), _cy()), 1.5, rgb(0.8, 0.8, 1));
+
+  // 显示传感器状态
+  let statusColor = rgb(0, 1, 1);
+  let statusText = '';
+  if (sensorStatus === 'ACTIVE') {
+    statusText = '\u2713 GYRO ACTIVE';
+    statusColor = rgb(0.2, 1, 0.4);
+  } else if (sensorStatus === 'NO_HTTPS') {
+    statusText = '\u26A0 HTTPS REQUIRED';
+    statusColor = rgb(1, 0.4, 0);
+  } else if (sensorStatus === 'TIMEOUT' || sensorStatus === 'DENIED') {
+    statusText = '\u26A0 GYRO UNAVAILABLE - Touch to steer';
+    statusColor = rgb(1, 0.6, 0);
+  } else {
+    statusText = 'Starting sensor...';
+    statusColor = rgb(0.5, 0.5, 0.5);
+  }
+  drawTextScreen(statusText, vec2(_cx(), _cy() + 40), 1.2, statusColor);
+
+  // 如果传感器不可用，显示触摸后备提示
+  if (!sensorAvailable) {
+    drawTextScreen('Touch right side of screen to steer', vec2(_cx(), _cy() + 70), 1.0, rgb(0.4, 0.4, 0.6));
+  }
+
+  drawTextScreen('[ TAP TO START ]', vec2(_cx(), _cy() + 110), 1.5, rgb(0, 1, 1));
 }
 
 function drawHUD() {
@@ -444,10 +481,24 @@ function drawHUD() {
   // 生命值（左上方）
   drawTextScreen('\u2665 ' + lives, vec2(20, 20), 32, rgb(1, 0.4, 0.4));
 
+  // 传感器状态指示器
+  if (sensor && sensor.enabled) {
+    // 绿色小圆点表示陀螺仪活跃
+    drawTextScreen('\u25CF', vec2(20, 55), 24, rgb(0.2, 1, 0.4));
+  } else if (!sensorAvailable) {
+    // 触摸后备指示（仅在非 HTTPS 时显示）
+    if (sensorStatus === 'NO_HTTPS') {
+      drawTextScreen('\u26A0 HTTPS', vec2(20, 55), 20, rgb(1, 0.6, 0));
+    } else {
+      // 显示摇杆使用提示
+      drawTextScreen('JOYSTICK', vec2(20, 55), 20, rgb(0.4, 0.6, 1));
+    }
+  }
+
   // 低功率模式提示
   if (lowPowerMode) {
     const fpsAvg = fpsHistory.length > 0 ? fpsHistory.reduce((a, b) => a + b, 0) / fpsHistory.length : 0;
-    drawTextScreen('LOW-PWR ' + Math.round(fpsAvg) + 'fps', vec2(20, 55), 24, rgb(1, 0.3, 0.3));
+    drawTextScreen('LOW-PWR ' + Math.round(fpsAvg) + 'fps', vec2(20, 85), 24, rgb(1, 0.3, 0.3));
   }
 
   // 调试信息显示（手机端调试用）
@@ -552,23 +603,35 @@ function handleTouch() {
 function gameInit() {
   sensor = new SensorInput();
   initParticles();
+
+  // 虚拟摇杆触摸事件（覆盖整个屏幕）
+  canvas.addEventListener('touchstart', _onJoystickStart, { passive: false });
+  canvas.addEventListener('touchmove', _onJoystickMove, { passive: false });
+  canvas.addEventListener('touchend', _onJoystickEnd, { passive: false });
+  canvas.addEventListener('touchcancel', _onJoystickEnd, { passive: false });
 }
 
 /** 由 index.html 调用，启动传感器权限并开始游戏 */
 window.startGame = async function() {
-  // 请求传感器权限（iOS 13+ 需要用户手势触发）
+  sensorAvailable = SensorInput.isAvailable();
+  if (!sensorAvailable) {
+    sensorStatus = 'NO_HTTPS';
+  }
   if (sensor) {
-    // 添加超时保护：某些设备上 requestPermission 可能永不 resolve
+    // 超时保护：某些设备上 requestPermission 可能永不 resolve
     const permissionPromise = sensor.requestPermission();
-    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('timeout'), 2000));
+    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('timeout'), 3000));
     const granted = await Promise.race([permissionPromise, timeoutPromise]);
     if (granted === 'timeout') {
-      console.warn('Sensor permission request timed out - continuing without gyro');
-    } else if (granted) {
+      sensorStatus = 'TIMEOUT';
+      console.warn('[Game] Sensor permission timed out');
+    } else if (granted === true) {
       sensor.start();
-      console.log('Sensor started successfully');
-    } else {
-      console.warn('Sensor permission denied - gyro control will not work');
+      sensorAvailable = true;
+      sensorStatus = 'ACTIVE';
+      console.log('[Game] Sensor started');
+    } else if (granted === false) {
+      sensorStatus = 'DENIED';
     }
   }
   // 切换到校准流程
@@ -692,6 +755,75 @@ function gameRenderPost() {
   }
   // 每帧重置粒子预算计数
   resetParticleBudget();
+  // 渲染虚拟摇杆（仅当传感器不可用且在游戏中）
+  if (!sensorAvailable && (gameState === 'play' || gameState === 'calibrate')) {
+    renderVirtualJoystick();
+  }
+}
+
+/** 渲染虚拟摇杆（Canvas 2D 覆盖层） */
+function renderVirtualJoystick() {
+  if (!_joystickActive) return;
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  // 外圈
+  ctx.beginPath();
+  ctx.arc(_joystickOrigin.x, _joystickOrigin.y, _joystickRadius, 0, Math.PI * 2);
+  ctx.strokeStyle = '#00FFFF';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  // 内圈（摇杆位置）
+  const knobX = _joystickOrigin.x + _joystickVec.x * _joystickRadius;
+  const knobY = _joystickOrigin.y + _joystickVec.y * _joystickRadius;
+  ctx.beginPath();
+  ctx.arc(knobX, knobY, _joystickRadius * 0.4, 0, Math.PI * 2);
+  ctx.fillStyle = '#00FFFF';
+  ctx.fill();
+  ctx.restore();
+}
+
+// ============ 虚拟摇杆触摸处理 ============
+
+function _onJoystickStart(e) {
+  if (!sensorAvailable && (gameState === 'play' || gameState === 'calibrate')) {
+    e.preventDefault();
+    const t = e.touches[0];
+    // 屏幕右半边作为摇杆区域
+    if (t.clientX > canvas.width * 0.3) {
+      _joystickActive = true;
+      _joystickOrigin = vec2(t.clientX, t.clientY);
+      _updateJoystick(t.clientX, t.clientY);
+    }
+  }
+}
+
+function _onJoystickMove(e) {
+  if (_joystickActive) {
+    e.preventDefault();
+    const t = e.touches[0];
+    _updateJoystick(t.clientX, t.clientY);
+  }
+}
+
+function _onJoystickEnd(e) {
+  if (_joystickActive) {
+    e.preventDefault();
+    _joystickActive = false;
+    _joystickVec = vec2(0, 0);
+  }
+}
+
+function _updateJoystick(cx, cy) {
+  const dx = cx - _joystickOrigin.x;
+  const dy = cy - _joystickOrigin.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const maxDist = _joystickRadius;
+  const clampedDist = Math.min(dist, maxDist);
+  if (dist > 0.01) {
+    _joystickVec = vec2(dx / dist * clampedDist / maxDist, dy / dist * clampedDist / maxDist);
+  } else {
+    _joystickVec = vec2(0, 0);
+  }
 }
 
 // ============ 启动入口 ============
