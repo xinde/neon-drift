@@ -53,24 +53,25 @@ class SensorInput {
 
   /** iOS 13+ 请求传感器权限 */
   async requestPermission() {
+    if (!SensorInput.isAvailable()) return false;
     if (typeof DeviceOrientationEvent !== 'undefined' &&
         typeof DeviceOrientationEvent.requestPermission === 'function') {
       try {
         const perm = await DeviceOrientationEvent.requestPermission();
         if (perm === 'granted') {
-          console.log('Sensor permission granted');
+          console.log('[Sensor] iOS permission granted');
           return true;
         } else {
-          console.warn('Sensor permission denied:', perm);
+          console.warn('[Sensor] iOS permission denied:', perm);
           return false;
         }
       } catch (e) {
-        console.warn('Sensor permission error:', e);
+        console.warn('[Sensor] iOS permission error:', e);
         return false;
       }
     }
-    // Android / 非 iOS 直接返回 true
-    return true;
+    // Android / 非 iOS 直接返回可用状态
+    return SensorInput.isAvailable();
   }
 
   /** 启动传感器监听（仅在设备支持时，可安全重复调用） */
@@ -79,12 +80,23 @@ class SensorInput {
     if (this.enabled) return;
     // 检查设备是否支持传感器事件
     if (typeof DeviceOrientationEvent === 'undefined') {
-      console.warn('DeviceOrientationEvent not supported');
+      console.warn('[Sensor] DeviceOrientationEvent not supported on this device');
       return;
     }
     window.addEventListener('deviceorientation', (e) => this._onOrientation(e), true);
     window.addEventListener('devicemotion', (e) => this._onMotion(e), true);
     this.enabled = true;
+    console.log('[Sensor] Started - gamma:', this.gamma, 'beta:', this.beta);
+  }
+
+  /** 检查传感器是否可用（需要在 HTTPS 下） */
+  static isAvailable() {
+    if (typeof DeviceOrientationEvent === 'undefined') return false;
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+      console.warn('[Sensor] DeviceOrientation requires HTTPS (current:', location.protocol, ')');
+      return false;
+    }
+    return true;
   }
 
   /** 停止传感器监听 */
