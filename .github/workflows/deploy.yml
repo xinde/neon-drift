@@ -1,30 +1,20 @@
-name: Deploy Master to GitHub Pages
+name: Deploy
 
 on:
   push:
-    branches:
-      - master
+    branches: [master]
+
+permissions:
+  contents: write
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout master
-        uses: actions/checkout@v4
-        with:
-          ref: master
+      - uses: actions/checkout@v4
 
-      - name: Setup git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Deploy to gh-pages
-        uses: JamesIves/github-pages-deploy-action@v4
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
         with:
-          branch: gh-pages
-          folder: .
-          single-commit: true
-          clean: true
-          clean-exclude: |
-            .nojekyll
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./
