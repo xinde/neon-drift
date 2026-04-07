@@ -484,15 +484,13 @@ function drawHUD() {
   if (sensor && sensor.enabled) {
     // 绿色小圆点表示陀螺仪活跃
     drawTextScreen('\u25CF', vec2(20, 55), 24, rgb(0.2, 1, 0.4));
+  } else if (sensorStatus === 'NO_HTTPS') {
+    drawTextScreen('\u26A0 HTTPS', vec2(20, 55), 20, rgb(1, 0.6, 0));
   } else if (!sensorAvailable) {
-    // 触摸后备指示（仅在非 HTTPS 时显示）
-    if (sensorStatus === 'NO_HTTPS') {
-      drawTextScreen('\u26A0 HTTPS', vec2(20, 55), 20, rgb(1, 0.6, 0));
-    } else {
-      // 显示摇杆使用提示
-      drawTextScreen('JOYSTICK', vec2(20, 55), 20, rgb(0.4, 0.6, 1));
-    }
+    // 仅在传感器完全不可用时显示摇杆提示
+    drawTextScreen('JOYSTICK', vec2(20, 55), 20, rgb(0.4, 0.6, 1));
   }
+  // sensorAvailable === true 但 sensor.enabled === false 时：不显示任何提示（权限申请中）
 
   // 低功率模式提示
   if (lowPowerMode) {
@@ -750,7 +748,7 @@ function gameRenderPost() {
   // 每帧重置粒子预算计数
   resetParticleBudget();
   // 渲染虚拟摇杆（仅当传感器不可用且在游戏中）
-  if (!sensorAvailable && (gameState === 'play' || gameState === 'calibrate')) {
+  if (!(sensor && sensor.enabled) && (gameState === 'play' || gameState === 'calibrate')) {
     renderVirtualJoystick();
   }
 }
