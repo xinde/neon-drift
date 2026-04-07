@@ -15,19 +15,20 @@ canvas{display:block}
 <script src="sensor.js"></script>
 <script>
 // ============ 最小化陀螺仪测试 (LittleJS + sensor.js) ============
-function pad(n, w) { return String(n).padStart(w); }
-
 let sensor = null;
 let ballX, ballY, ballVX, ballVY;
 let ballRadius = 0.3;
 const FRICTION = 0.94;
 const ACCEL = 15;
 const MAX_SPEED = 6;
-const BOUNDARY = 8; // 世界坐标边界
+const BOUNDARY = 8;
 
 let statusText = 'TAP TO START';
 let statusColor = rgb(1, 1, 0);
 let started = false;
+
+// 调试信息
+let debugLines = [];
 
 // 世界坐标：宽 16，高 10，相机居中
 cameraScale = 50;
@@ -41,35 +42,49 @@ function initTest() {
   cameraPos = vec2(8, 5);
 }
 
+function setStatus(text, col) {
+  statusText = text;
+  statusColor = col || rgb(1, 1, 0);
+}
+
 function gameInit() {
   initTest();
   showSplashScreen = false;
   canvasMaxSize = vec2(9999, 9999);
   canvasPixelated = false;
-
-  // 点击启动
   canvas.addEventListener('pointerdown', onPointer, { once: false });
 }
 
-function onPointer() {
-  if (!started) {
-    started = true;
-    sensor.start();
-    statusText = 'STARTING...';
-    statusColor = rgb(0.5, 0.5, 0.5);
+async function onPointer() {
+  if (started) return;
+  started = true;
+  setStatus('STARTING...', rgb(0.5, 0.5, 0.5));
 
-    // iOS 13+
-    if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
-      DeviceOrientationEvent.requestPermission()
-        .then(r => { statusText = r === 'granted' ? 'ACTIVE' : 'DENIED'; })
-        .catch(() => { statusText = 'DENIED'; });
-    } else {
-      setTimeout(() => {
-        statusText = sensor.enabled ? 'ACTIVE' : 'NO_HTTPS';
-        statusColor = sensor.enabled ? rgb(0.2, 1, 0.4) : rgb(1, 0.4, 0);
-      }, 500);
+  // iOS 13+: 必须先申请权限，再启动传感器
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try {
+      const perm = await DeviceOrientationEvent.requestPermission();
+      if (perm === 'granted') {
+        sensor.start();
+        setStatus('ACTIVE', rgb(0.2, 1, 0.4));
+      } else {
+        setStatus('DENIED', rgb(1, 0.2, 0.2));
+      }
+    } catch (e) {
+      setStatus('DENIED', rgb(1, 0.2, 0.2));
     }
+    return;
+  }
+
+  // 非 iOS: 直接启动
+  sensor.start();
+  if (sensor.enabled) {
+    setStatus('ACTIVE', rgb(0.2, 1, 0.4));
+  } else if (!SensorInput.isAvailable()) {
+    setStatus('NO GYRO (DESKTOP)', rgb(1, 0.5, 0));
+  } else {
+    setStatus('NO HTTPS', rgb(1, 0.4, 0));
   }
 }
 
@@ -150,23 +165,40 @@ function gameRender() {
 
 function gameRenderUI() {
   // 状态标签
-  const col = started && sensor && sensor.enabled ? rgb(0.2, 1, 0.4) : rgb(1, 1, 0);
-  drawTextScreen(statusText, vec2(canvas.width / 2, 30), 20, col);
+  drawTextScreen(statusText, vec2(canvas.width / 2, 30), 20, statusColor);
 
-  // 数值显示
-  if (started && sensor && sensor.enabled) {
-    const t = sensor.getTiltVector();
+  // 传感器值显示（只要 sensor 存在就显示）
+  if (started && sensor) {
+    let gx = 0, gy = 0;
+    if (sensor.enabled) {
+      const t = sensor.getTiltVector();
+      gx = t.x;
+      gy = t.y;
+    }
+    const enabled = sensor.enabled;
     const lines = [
-      `gx:${pad(t.x.toFixed(3),7)}  gy:${pad(t.y.toFixed(3),7)}`,
-      `vx:${pad(ballVX.toFixed(2),6)}  vy:${pad(ballVY.toFixed(2),6)}`,
+      `Sensor: ${enabled ? 'ON' : 'OFF'}`,
+      `gx:${gx.toFixed(3)}  gy:${gy.toFixed(3)}`,
+      `vx:${ballVX.toFixed(2)}  vy:${ballVY.toFixed(2)}`,
     ];
     ctx.save();
     ctx.font = '14px monospace';
-    ctx.fillStyle = '#00FFFF';
+    ctx.fillStyle = enabled ? '#00FFFF' : '#888888';
     ctx.textAlign = 'center';
-    ctx.fillText(lines[0], canvas.width / 2, canvas.height - 50);
-    ctx.fillText(lines[1], canvas.width / 2, canvas.height - 32);
+    const baseY = canvas.height - 60;
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], canvas.width / 2, baseY + i * 20);
+    }
     ctx.restore();
+  }
+
+  // 未启动时的提示
+  if (!started) {
+    drawTextScreen(
+      'Desktop: No gyro - use a mobile device with HTTPS',
+      vec2(canvas.width / 2, canvas.height - 30),
+      12, rgb(0.3, 0.3, 0.3)
+    );
   }
 }
 
