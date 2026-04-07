@@ -46,7 +46,6 @@ let _joystickVec = vec2(0, 0);     // 归一化摇杆方向 [-1, 1]
 let _joystickRadius = 60;     // 摇杆最大半径（像素）
 let keyboardInput = vec2(0, 0);
 let shockwaveKeyDown = false;
-let _screenClicked = false; // 单帧点击标志，防止重复触发
 let playerBall = null;
 let crystals = [];
 let hazards = [];
@@ -568,9 +567,8 @@ function handleKeyboard() {
 }
 
 function handleTouch() {
-  // 点击屏幕切换状态（mouseWasPressed 检测按下，_screenClicked 标志防止重复）
-  if (mouseWasPressed(0) && !_screenClicked) {
-    _screenClicked = true;
+  // mouseWasPressed 本身就是每按一次只触发一次，不需要额外标志
+  if (mouseWasPressed(0)) {
     if (gameState === 'splash') {
       gameState = 'calibrate';
     } else if (gameState === 'calibrate') {
@@ -592,10 +590,6 @@ function handleTouch() {
       loadLevel(0);
       gameState = 'play';
     }
-  }
-  // 鼠标释放后重置标志
-  if (mouseWasReleased(0)) {
-    _screenClicked = false;
   }
 }
 
@@ -785,10 +779,11 @@ function renderVirtualJoystick() {
 // ============ 虚拟摇杆触摸处理 ============
 
 function _onJoystickStart(e) {
-  if (!sensorAvailable && (gameState === 'play' || gameState === 'calibrate')) {
-    e.preventDefault();
-    const t = e.touches[0];
-    // 屏幕右半边作为摇杆区域
+  // 始终 preventDefault，防止 LittleJS 将触摸转换为鼠标事件导致状态误触发
+  e.preventDefault();
+  const t = e.touches[0];
+  // 屏幕右半边作为摇杆区域（仅在游戏中/校准中激活摇杆）
+  if (gameState === 'play' || gameState === 'calibrate') {
     if (t.clientX > canvas.width * 0.3) {
       _joystickActive = true;
       _joystickOrigin = vec2(t.clientX, t.clientY);
