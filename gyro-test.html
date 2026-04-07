@@ -27,10 +27,6 @@ let statusText = 'TAP TO START';
 let statusColor = rgb(1, 1, 0);
 let started = false;
 
-// 调试信息
-let debugLines = [];
-
-// 世界坐标：宽 16，高 10，相机居中
 cameraScale = 50;
 
 function initTest() {
@@ -60,7 +56,6 @@ async function onPointer() {
   started = true;
   setStatus('STARTING...', rgb(0.5, 0.5, 0.5));
 
-  // iOS 13+: 必须先申请权限，再启动传感器
   if (typeof DeviceOrientationEvent !== 'undefined' &&
       typeof DeviceOrientationEvent.requestPermission === 'function') {
     try {
@@ -77,7 +72,6 @@ async function onPointer() {
     return;
   }
 
-  // 非 iOS: 直接启动
   sensor.start();
   if (sensor.enabled) {
     setStatus('ACTIVE', rgb(0.2, 1, 0.4));
@@ -91,7 +85,6 @@ async function onPointer() {
 function gameUpdate() {
   if (!started) return;
 
-  // 读取陀螺仪
   let gx = 0, gy = 0;
   if (sensor && sensor.enabled) {
     const t = sensor.getTiltVector();
@@ -99,41 +92,32 @@ function gameUpdate() {
     gy = t.y;
   }
 
-  // 施加加速度
   ballVX += gx * ACCEL * timeDelta;
   ballVY += gy * ACCEL * timeDelta;
-
-  // 摩擦
   ballVX *= FRICTION;
   ballVY *= FRICTION;
 
-  // 速度限制
   const spd = Math.sqrt(ballVX * ballVX + ballVY * ballVY);
   if (spd > MAX_SPEED) {
     ballVX = ballVX / spd * MAX_SPEED;
     ballVY = ballVY / spd * MAX_SPEED;
   }
 
-  // 移动
   ballX += ballVX * timeDelta;
-  ballY -= ballVY * timeDelta; // Y轴反向
+  ballY -= ballVY * timeDelta;
 
-  // 边界反弹
   if (ballX < ballRadius) { ballX = ballRadius; ballVX *= -0.5; }
   if (ballX > BOUNDARY - ballRadius) { ballX = BOUNDARY - ballRadius; ballVX *= -0.5; }
   if (ballY < ballRadius) { ballY = ballRadius; ballVY *= -0.5; }
   if (ballY > 10 - ballRadius) { ballY = 10 - ballRadius; ballVY *= -0.5; }
 
-  // 相机跟随
   cameraPos.x += (ballX - cameraPos.x) * 3 * timeDelta;
   cameraPos.y += (ballY - cameraPos.y) * 3 * timeDelta;
 }
 
 function gameRender() {
-  // 背景
   drawRect(vec2(8, 5), vec2(BOUNDARY, 10), rgb(0.04, 0.04, 0.07));
 
-  // 网格
   ctx.save();
   ctx.globalAlpha = 0.15;
   for (let x = 0; x <= BOUNDARY; x++) {
@@ -144,30 +128,55 @@ function gameRender() {
   }
   ctx.restore();
 
-  // 边界框
   drawRect(vec2(BOUNDARY / 2, 5), vec2(BOUNDARY, 10), rgb(0, 0.3, 0.5), 0, 0);
 
   if (!started) {
-    drawTextScreen('GYRO TEST', vec2(canvas.width / 2, canvas.height * 0.35), 48, rgb(0, 1, 1));
-    drawTextScreen('TAP ANYWHERE TO START', vec2(canvas.width / 2, canvas.height * 0.5), 24, rgb(0.5, 0.5, 0.5));
-    drawTextScreen('Tilt device to move ball', vec2(canvas.width / 2, canvas.height * 0.58), 18, rgb(0.3, 0.3, 0.3));
+    drawTextScreen('GYRO TEST', vec2(canvas.width / 2, canvas.height * 0.3), 5, rgb(0, 1, 1));
+    drawTextScreen('TAP ANYWHERE TO START', vec2(canvas.width / 2, canvas.height * 0.5), 2, rgb(0.5, 0.5, 0.5));
+    drawTextScreen('Tilt device to move ball', vec2(canvas.width / 2, canvas.height * 0.58), 1.2, rgb(0.3, 0.3, 0.3));
     return;
   }
 
-  // 球体外晕
-  drawCircle(vec2(ballX, ballY), ballRadius * 1.8, rgb(0, 0.8, 1, 0.2));
-  drawCircle(vec2(ballX, ballY), ballRadius * 1.3, rgb(0, 1, 1, 0.3));
+  // 球体外晕 - 强度随速度变化
+  const speed = Math.sqrt(ballVX * ballVX + ballVY * ballVY);
+  const glowScale = 1.0 + speed * 0.3;
+  drawCircle(vec2(ballX, ballY), ballRadius * 1.8 * glowScale, rgb(0, 0.8, 1, 0.2));
+  drawCircle(vec2(ballX, ballY), ballRadius * 1.3 * glowScale, rgb(0, 1, 1, 0.3));
 
   // 球体核心
   drawCircle(vec2(ballX, ballY), ballRadius, rgb(0.9, 1, 1));
   drawCircle(vec2(ballX, ballY), ballRadius * 0.5, rgb(1, 1, 1, 0.9));
+
+  // 速度箭头
+  if (speed > 0.1) {
+    const arrowLen = ballRadius * 2 + speed * 0.5;
+    const angle = Math.atan2(-ballVY, ballVX);
+    const ax = ballX + Math.cos(angle) * arrowLen;
+    const ay = ballY - Math.sin(angle) * arrowLen;
+    ctx.save();
+    ctx.globalAlpha = Math.min(0.8, speed * 0.2);
+    ctx.strokeStyle = '#00FFFF';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(ballX, ballY);
+    ctx.lineTo(ax, ay);
+    ctx.stroke();
+    const headLen = 6;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax - Math.cos(angle - 0.4) * headLen, ay + Math.sin(angle - 0.4) * headLen);
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax - Math.cos(angle + 0.4) * headLen, ay + Math.sin(angle + 0.4) * headLen);
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 function gameRenderUI() {
-  // 状态标签
-  drawTextScreen(statusText, vec2(canvas.width / 2, 30), 20, statusColor);
+  // 顶部状态标签 - 大字号，清晰可见
+  drawTextScreen('[ ' + statusText + ' ]', vec2(canvas.width / 2, 40), 2.5, statusColor);
 
-  // 传感器值显示（只要 sensor 存在就显示）
+  // 左上角：传感器实时数值
   if (started && sensor) {
     let gx = 0, gy = 0;
     if (sensor.enabled) {
@@ -176,33 +185,30 @@ function gameRenderUI() {
       gy = t.y;
     }
     const enabled = sensor.enabled;
-    const lines = [
-      `Sensor: ${enabled ? 'ON' : 'OFF'}`,
-      `gx:${gx.toFixed(3)}  gy:${gy.toFixed(3)}`,
-      `vx:${ballVX.toFixed(2)}  vy:${ballVY.toFixed(2)}`,
-    ];
-    ctx.save();
-    ctx.font = '14px monospace';
-    ctx.fillStyle = enabled ? '#00FFFF' : '#888888';
-    ctx.textAlign = 'center';
-    const baseY = canvas.height - 60;
-    for (let i = 0; i < lines.length; i++) {
-      ctx.fillText(lines[i], canvas.width / 2, baseY + i * 20);
+    const col = enabled ? rgb(0, 1, 1) : rgb(0.5, 0.5, 0.5);
+    const x = 20, y0 = 70;
+    drawTextScreen('=== GYRO DATA ===', vec2(x, y0), 1.0, col);
+    drawTextScreen('Sensor: ' + (enabled ? 'ON' : 'OFF'), vec2(x, y0 + 22), 1.0, col);
+    drawTextScreen('gx: ' + gx.toFixed(3), vec2(x, y0 + 44), 1.0, col);
+    drawTextScreen('gy: ' + gy.toFixed(3), vec2(x, y0 + 66), 1.0, col);
+    drawTextScreen('vx: ' + ballVX.toFixed(2), vec2(x, y0 + 88), 1.0, col);
+    drawTextScreen('vy: ' + ballVY.toFixed(2), vec2(x, y0 + 110), 1.0, col);
+
+    // 右上角：速度指示
+    const spd = Math.sqrt(ballVX * ballVX + ballVY * ballVY);
+    drawTextScreen('SPEED', vec2(canvas.width - 20, 70), 1.0, col);
+    drawTextScreen(spd.toFixed(2), vec2(canvas.width - 20, 92), 1.8, col);
+
+    // 底部中间：提示
+    if (enabled) {
+      drawTextScreen('Tilt your device - ball follows!', vec2(canvas.width / 2, canvas.height - 30), 1.0, rgb(0.3, 0.3, 0.3));
     }
-    ctx.restore();
   }
 
-  // 未启动时的提示
-  if (!started) {
-    drawTextScreen(
-      'Desktop: No gyro - use a mobile device with HTTPS',
-      vec2(canvas.width / 2, canvas.height - 30),
-      12, rgb(0.3, 0.3, 0.3)
-    );
-  }
+  // 右下角
+  drawTextScreen('Gyro Test v2', vec2(canvas.width - 20, canvas.height - 20), 0.8, rgb(0.2, 0.2, 0.2));
 }
 
-// 启动引擎
 canvasMaxSize = vec2(9999, 9999);
 canvasPixelated = false;
 showSplashScreen = false;
