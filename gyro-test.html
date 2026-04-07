@@ -14,7 +14,7 @@ canvas{display:block}
 <script src="littlejs.js"></script>
 <script src="sensor.js"></script>
 <script>
-// ============ 最小化陀螺仪测试 (LittleJS + sensor.js) ============
+// ============ Gyro Test (LittleJS + sensor.js) ============
 let sensor = null;
 let ballX, ballY, ballVX, ballVY;
 let ballRadius = 0.3;
@@ -83,10 +83,8 @@ async function onPointer() {
 }
 
 function gameUpdate() {
-  if (!started) return;
-
   let gx = 0, gy = 0;
-  if (sensor && sensor.enabled) {
+  if (started && sensor && sensor.enabled) {
     const t = sensor.getTiltVector();
     gx = t.x;
     gy = t.y;
@@ -130,24 +128,14 @@ function gameRender() {
 
   drawRect(vec2(BOUNDARY / 2, 5), vec2(BOUNDARY, 10), rgb(0, 0.3, 0.5), 0, 0);
 
-  if (!started) {
-    drawTextScreen('GYRO TEST', vec2(canvas.width / 2, canvas.height * 0.3), 5, rgb(0, 1, 1));
-    drawTextScreen('TAP ANYWHERE TO START', vec2(canvas.width / 2, canvas.height * 0.5), 2, rgb(0.5, 0.5, 0.5));
-    drawTextScreen('Tilt device to move ball', vec2(canvas.width / 2, canvas.height * 0.58), 1.2, rgb(0.3, 0.3, 0.3));
-    return;
-  }
-
-  // 球体外晕 - 强度随速度变化
+  // Always draw ball and arrow
   const speed = Math.sqrt(ballVX * ballVX + ballVY * ballVY);
   const glowScale = 1.0 + speed * 0.3;
   drawCircle(vec2(ballX, ballY), ballRadius * 1.8 * glowScale, rgb(0, 0.8, 1, 0.2));
   drawCircle(vec2(ballX, ballY), ballRadius * 1.3 * glowScale, rgb(0, 1, 1, 0.3));
-
-  // 球体核心
   drawCircle(vec2(ballX, ballY), ballRadius, rgb(0.9, 1, 1));
   drawCircle(vec2(ballX, ballY), ballRadius * 0.5, rgb(1, 1, 1, 0.9));
 
-  // 速度箭头
   if (speed > 0.1) {
     const arrowLen = ballRadius * 2 + speed * 0.5;
     const angle = Math.atan2(-ballVY, ballVX);
@@ -161,52 +149,66 @@ function gameRender() {
     ctx.moveTo(ballX, ballY);
     ctx.lineTo(ax, ay);
     ctx.stroke();
-    const headLen = 6;
     ctx.beginPath();
     ctx.moveTo(ax, ay);
-    ctx.lineTo(ax - Math.cos(angle - 0.4) * headLen, ay + Math.sin(angle - 0.4) * headLen);
+    ctx.lineTo(ax - Math.cos(angle - 0.4) * 6, ay + Math.sin(angle - 0.4) * 6);
     ctx.moveTo(ax, ay);
-    ctx.lineTo(ax - Math.cos(angle + 0.4) * headLen, ay + Math.sin(angle + 0.4) * headLen);
+    ctx.lineTo(ax - Math.cos(angle + 0.4) * 6, ay + Math.sin(angle + 0.4) * 6);
     ctx.stroke();
     ctx.restore();
+  }
+
+  // Splash screen overlay when not started
+  if (!started) {
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    drawRect(vec2(8, 5), vec2(BOUNDARY, 10), rgb(0.02, 0.02, 0.05));
+    ctx.restore();
+
+    drawTextScreen('GYRO TEST', vec2(canvas.width / 2, canvas.height / 2 - 80), 4, rgb(0, 1, 1));
+    drawTextScreen('TAP ANYWHERE', vec2(canvas.width / 2, canvas.height / 2), 2, rgb(1, 1, 0));
+    drawTextScreen('Tilt device = ball moves', vec2(canvas.width / 2, canvas.height / 2 + 40), 1.2, rgb(0.5, 0.5, 0.5));
   }
 }
 
 function gameRenderUI() {
-  // 顶部状态标签 - 大字号，清晰可见
-  drawTextScreen('[ ' + statusText + ' ]', vec2(canvas.width / 2, 40), 2.5, statusColor);
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
 
-  // 左上角：传感器实时数值
-  if (started && sensor) {
-    let gx = 0, gy = 0;
-    if (sensor.enabled) {
-      const t = sensor.getTiltVector();
-      gx = t.x;
-      gy = t.y;
-    }
-    const enabled = sensor.enabled;
-    const col = enabled ? rgb(0, 1, 1) : rgb(0.5, 0.5, 0.5);
-    const x = 20, y0 = 70;
-    drawTextScreen('=== GYRO DATA ===', vec2(x, y0), 1.0, col);
-    drawTextScreen('Sensor: ' + (enabled ? 'ON' : 'OFF'), vec2(x, y0 + 22), 1.0, col);
-    drawTextScreen('gx: ' + gx.toFixed(3), vec2(x, y0 + 44), 1.0, col);
-    drawTextScreen('gy: ' + gy.toFixed(3), vec2(x, y0 + 66), 1.0, col);
-    drawTextScreen('vx: ' + ballVX.toFixed(2), vec2(x, y0 + 88), 1.0, col);
-    drawTextScreen('vy: ' + ballVY.toFixed(2), vec2(x, y0 + 110), 1.0, col);
+  // Status bar at very top
+  drawTextScreen('[' + statusText + ']', vec2(cx, 36), 2.2, statusColor);
 
-    // 右上角：速度指示
-    const spd = Math.sqrt(ballVX * ballVX + ballVY * ballVY);
-    drawTextScreen('SPEED', vec2(canvas.width - 20, 70), 1.0, col);
-    drawTextScreen(spd.toFixed(2), vec2(canvas.width - 20, 92), 1.8, col);
-
-    // 底部中间：提示
-    if (enabled) {
-      drawTextScreen('Tilt your device - ball follows!', vec2(canvas.width / 2, canvas.height - 30), 1.0, rgb(0.3, 0.3, 0.3));
-    }
+  // GYRO DATA panel - bottom left, always visible
+  let gx = 0, gy = 0;
+  if (started && sensor && sensor.enabled) {
+    const t = sensor.getTiltVector();
+    gx = t.x;
+    gy = t.y;
   }
+  const col = (started && sensor && sensor.enabled) ? rgb(0, 1, 1) : rgb(0.4, 0.4, 0.4);
+  const lx = 16, ly = canvas.height - 20;
 
-  // 右下角
-  drawTextScreen('Gyro Test v2', vec2(canvas.width - 20, canvas.height - 20), 0.8, rgb(0.2, 0.2, 0.2));
+  // Background panel
+  ctx.save();
+  ctx.globalAlpha = 0.3;
+  drawRect(vec2(lx + 60, ly - 65), vec2(140, 75), rgb(0.1, 0.1, 0.2));
+  ctx.restore();
+
+  drawTextScreen('GYRO DATA', vec2(lx + 8, ly - 70), 1.0, col);
+  drawTextScreen('gx: ' + gx.toFixed(3), vec2(lx + 8, ly - 48), 1.2, col);
+  drawTextScreen('gy: ' + gy.toFixed(3), vec2(lx + 8, ly - 28), 1.2, col);
+  drawTextScreen('vx: ' + ballVX.toFixed(2), vec2(lx + 8, ly - 8), 1.2, col);
+  drawTextScreen('vy: ' + ballVY.toFixed(2), vec2(lx + 120, ly - 48), 1.2, col);
+
+  // SPEED - bottom right
+  const spd = Math.sqrt(ballVX * ballVX + ballVY * ballVY);
+  drawTextScreen('SPEED', vec2(canvas.width - 16, canvas.height - 40), 1.0, col);
+  drawTextScreen(spd.toFixed(2), vec2(canvas.width - 16, canvas.height - 18), 1.6, col);
+
+  // Desktop hint when not started
+  if (!started) {
+    drawTextScreen('(Use mobile + HTTPS to test gyro)', vec2(cx, 64), 0.9, rgb(0.3, 0.3, 0.3));
+  }
 }
 
 canvasMaxSize = vec2(9999, 9999);
