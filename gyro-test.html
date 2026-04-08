@@ -20,16 +20,19 @@ canvasMaxSize = vec2(1920, 1080);
 canvasClearColor = rgb(0.04, 0.04, 0.07, 1);
 showSplashScreen = false;
 cameraScale = 20;
-cameraPos = vec2(8, 5);
+cameraPos = vec2(BOUNDARY_W / 2, BOUNDARY_H / 2);
+
+// Play area constants
+const BOUNDARY_W = 8;
+const BOUNDARY_H = 10;
 
 let sensor = null;
-let ballX = 8, ballY = 5;
+let ballX = BOUNDARY_W / 2, ballY = BOUNDARY_H / 2;
 let ballVX = 0, ballVY = 0;
-const ballRadius = 0.3;
+const BALL_R = 0.3;
 const FRICTION = 0.94;
 const ACCEL = 15;
 const MAX_SPEED = 6;
-const BOUNDARY = 8;
 
 let statusText = 'TAP TO START';
 let statusColor = rgb(1, 1, 0);
@@ -82,6 +85,7 @@ function gameUpdate() {
     gy = t.y;
   }
 
+  // Y+ in world = up; ballVY positive = upward in world
   ballVX += gx * ACCEL * timeDelta;
   ballVY += gy * ACCEL * timeDelta;
   ballVX *= FRICTION;
@@ -94,64 +98,73 @@ function gameUpdate() {
   }
 
   ballX += ballVX * timeDelta;
-  ballY -= ballVY * timeDelta;
+  ballY += ballVY * timeDelta;
 
-  if (ballX < ballRadius) { ballX = ballRadius; ballVX *= -0.5; }
-  if (ballX > BOUNDARY - ballRadius) { ballX = BOUNDARY - ballRadius; ballVX *= -0.5; }
-  if (ballY < ballRadius) { ballY = ballRadius; ballVY *= -0.5; }
-  if (ballY > 10 - ballRadius) { ballY = 10 - ballRadius; ballVY *= -0.5; }
+  // Boundary bounce
+  if (ballX < BALL_R) { ballX = BALL_R; ballVX *= -0.5; }
+  if (ballX > BOUNDARY_W - BALL_R) { ballX = BOUNDARY_W - BALL_R; ballVX *= -0.5; }
+  if (ballY < BALL_R) { ballY = BALL_R; ballVY *= -0.5; }
+  if (ballY > BOUNDARY_H - BALL_R) { ballY = BOUNDARY_H - BALL_R; ballVY *= -0.5; }
 
+  // Camera follows ball
   cameraPos.x += (ballX - cameraPos.x) * 3 * timeDelta;
   cameraPos.y += (ballY - cameraPos.y) * 3 * timeDelta;
 }
 
 function gameRender() {
-  drawRect(cameraPos, vec2(BOUNDARY, 10), rgb(0.04, 0.04, 0.07));
+  // Background
+  drawRect(cameraPos, vec2(BOUNDARY_W, BOUNDARY_H), rgb(0.04, 0.04, 0.07));
 
+  // Grid
   ctx.save();
   ctx.globalAlpha = 0.15;
-  for (let x = 0; x <= BOUNDARY; x++)
-    drawLine(vec2(x, 0), vec2(x, 10), rgb(0, 1, 1), 0.05);
-  for (let y = 0; y <= 10; y++)
-    drawLine(vec2(0, y), vec2(BOUNDARY, y), rgb(0, 1, 1), 0.05);
+  for (let x = 0; x <= BOUNDARY_W; x++)
+    drawLine(vec2(x, 0), vec2(x, BOUNDARY_H), rgb(0, 1, 1), 0.05);
+  for (let y = 0; y <= BOUNDARY_H; y++)
+    drawLine(vec2(0, y), vec2(BOUNDARY_W, y), rgb(0, 1, 1), 0.05);
   ctx.restore();
 
-  drawRect(vec2(BOUNDARY / 2, 5), vec2(BOUNDARY, 10), rgb(0, 0.3, 0.5), 0, 0);
+  // Border
+  drawRect(vec2(BOUNDARY_W / 2, BOUNDARY_H / 2), vec2(BOUNDARY_W, BOUNDARY_H), rgb(0, 0.3, 0.5), 0, 0);
 
+  // Ball glow
   const speed = Math.sqrt(ballVX * ballVX + ballVY * ballVY);
   const glow = 1.0 + speed * 0.4;
-  drawCircle(vec2(ballX, ballY), ballRadius * 3.0 * glow, rgb(0, 0.8, 1, 0.15));
-  drawCircle(vec2(ballX, ballY), ballRadius * 2.0 * glow, rgb(0, 1, 1, 0.3));
-  drawCircle(vec2(ballX, ballY), ballRadius, rgb(0.9, 1, 1));
-  drawCircle(vec2(ballX, ballY), ballRadius * 0.5, rgb(1, 1, 1, 0.9));
+  drawCircle(vec2(ballX, ballY), BALL_R * 3.0 * glow, rgb(0, 0.8, 1, 0.15));
+  drawCircle(vec2(ballX, ballY), BALL_R * 2.0 * glow, rgb(0, 1, 1, 0.3));
+  drawCircle(vec2(ballX, ballY), BALL_R, rgb(0.9, 1, 1));
+  drawCircle(vec2(ballX, ballY), BALL_R * 0.5, rgb(1, 1, 1, 0.9));
 
+  // Speed direction arrow in SCREEN coords (ctx is 2D canvas, not world space)
   if (speed > 0.05) {
+    const sp = worldToScreen(vec2(ballX, ballY));
     const angle = Math.atan2(-ballVY, ballVX);
-    const arrowLen = ballRadius * 2 + speed * 0.8;
-    const ax = ballX + Math.cos(angle) * arrowLen;
-    const ay = ballY - Math.sin(angle) * arrowLen;
+    const arrowLenPx = 12 + speed * 4;
+    const ax = sp.x + Math.cos(angle) * arrowLenPx;
+    const ay = sp.y + Math.sin(angle) * arrowLenPx;
     ctx.save();
     ctx.globalAlpha = Math.min(1.0, speed * 0.2);
     ctx.strokeStyle = '#00FFFF';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(ballX, ballY);
+    ctx.moveTo(sp.x, sp.y);
     ctx.lineTo(ax, ay);
     ctx.stroke();
     const hLen = 8;
     ctx.beginPath();
     ctx.moveTo(ax, ay);
-    ctx.lineTo(ax - Math.cos(angle - 0.4) * hLen, ay + Math.sin(angle - 0.4) * hLen);
+    ctx.lineTo(ax - Math.cos(angle - 0.4) * hLen, ay - Math.sin(angle - 0.4) * hLen);
     ctx.moveTo(ax, ay);
-    ctx.lineTo(ax - Math.cos(angle + 0.4) * hLen, ay + Math.sin(angle + 0.4) * hLen);
+    ctx.lineTo(ax - Math.cos(angle + 0.4) * hLen, ay - Math.sin(angle + 0.4) * hLen);
     ctx.stroke();
     ctx.restore();
   }
 
+  // Splash overlay
   if (!started) {
     ctx.save();
     ctx.globalAlpha = 0.7;
-    drawRect(cameraPos, vec2(BOUNDARY, 10), rgb(0.01, 0.01, 0.03));
+    drawRect(cameraPos, vec2(BOUNDARY_W, BOUNDARY_H), rgb(0.01, 0.01, 0.03));
     ctx.restore();
   }
 }
@@ -175,15 +188,16 @@ function gameRenderUI() {
     gy = t.y;
   }
   const col = (started && sensor && sensor.enabled) ? rgb(0, 1, 1) : rgb(0.5, 0.5, 0.5);
+  const speed = Math.sqrt(ballVX * ballVX + ballVY * ballVY);
 
   drawTextScreen('gx: ' + gx.toFixed(3) + '   gy: ' + gy.toFixed(3), vec2(cx, 75), 1.4, col);
   drawTextScreen('vx: ' + ballVX.toFixed(2) + '   vy: ' + ballVY.toFixed(2), vec2(cx, 97), 1.4, col);
-  drawTextScreen('SPEED: ' + Math.sqrt(ballVX * ballVX + ballVY * ballVY).toFixed(2), vec2(cx, 119), 1.4, col);
+  drawTextScreen('SPEED: ' + speed.toFixed(2), vec2(cx, 119), 1.4, col);
 
   drawTextScreen('(Mobile + HTTPS required for gyro)', vec2(cx, mainCanvas.height - 20), 1.0, rgb(0.3, 0.3, 0.3));
 }
 
-// Pointer listener after engineInit so mainCanvas is defined
+// Pointer listener AFTER engineInit so mainCanvas is defined
 engineInit(gameInit, gameUpdate, null, gameRender, gameRenderUI);
 mainCanvas.addEventListener('pointerdown', onPointer);
 </script>
