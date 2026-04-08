@@ -11,7 +11,7 @@ canvas{display:block}
 </style>
 </head>
 <body>
-<script src="littlejs.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/KilledByAPixel/LittleJS@v1.18.0/dist/littlejs.js"></script>
 <script src="sensor.js"></script>
 <script>
 // ============ Gyro Test (LittleJS + sensor.js) ============
@@ -19,6 +19,7 @@ canvas{display:block}
 canvasMaxSize = vec2(1920, 1080);
 canvasClearColor = rgb(0.04, 0.04, 0.07, 1); // match game background
 showSplashScreen = false;
+canvasPixelated = true; // 像素风格，避免 HiDPI 模糊
 cameraScale = 20;  // ~20 pixels per world unit
 cameraPos = vec2(8, 5); // center on play area
 
@@ -69,12 +70,10 @@ async function onPointer() {
   if (sensor.enabled) {
     statusText = 'ACTIVE';
     statusColor = rgb(0.2, 1, 0.4);
-  } else if (!SensorInput.isAvailable()) {
-    statusText = 'NO GYRO (DESKTOP)';
-    statusColor = rgb(1, 0.6, 0);
   } else {
-    statusText = 'NO HTTPS';
-    statusColor = rgb(1, 0.4, 0);
+    // Desktop fallback：传感器未启用但无报错，说明是桌面端或无 HTTPS
+    statusText = 'NO HTTPS / DESKTOP';
+    statusColor = rgb(1, 0.6, 0);
   }
 }
 
