@@ -117,13 +117,10 @@ function gameRender() {
   drawRect(cameraPos, vec2(BOUNDARY_W, BOUNDARY_H), rgb(0.04, 0.04, 0.07));
 
   // Grid
-  ctx.save();
-  ctx.globalAlpha = 0.15;
   for (let x = 0; x <= BOUNDARY_W; x++)
     drawLine(vec2(x, 0), vec2(x, BOUNDARY_H), rgb(0, 1, 1), 0.05);
   for (let y = 0; y <= BOUNDARY_H; y++)
     drawLine(vec2(0, y), vec2(BOUNDARY_W, y), rgb(0, 1, 1), 0.05);
-  ctx.restore();
 
   // Border
   drawRect(vec2(BOUNDARY_W / 2, BOUNDARY_H / 2), vec2(BOUNDARY_W, BOUNDARY_H), rgb(0, 0.3, 0.5), 0, 0);
@@ -136,37 +133,14 @@ function gameRender() {
   drawCircle(vec2(ballX, ballY), BALL_R, rgb(0.9, 1, 1));
   drawCircle(vec2(ballX, ballY), BALL_R * 0.5, rgb(1, 1, 1, 0.9));
 
-  // Speed direction arrow in SCREEN coords (ctx is 2D canvas, not world space)
-  if (speed > 0.05) {
-    const sp = worldToScreen(vec2(ballX, ballY));
-    const angle = Math.atan2(-ballVY, ballVX);
-    const arrowLenPx = 12 + speed * 4;
-    const ax = sp.x + Math.cos(angle) * arrowLenPx;
-    const ay = sp.y + Math.sin(angle) * arrowLenPx;
-    ctx.save();
-    ctx.globalAlpha = Math.min(1.0, speed * 0.2);
-    ctx.strokeStyle = '#00FFFF';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(sp.x, sp.y);
-    ctx.lineTo(ax, ay);
-    ctx.stroke();
-    const hLen = 8;
-    ctx.beginPath();
-    ctx.moveTo(ax, ay);
-    ctx.lineTo(ax - Math.cos(angle - 0.4) * hLen, ay - Math.sin(angle - 0.4) * hLen);
-    ctx.moveTo(ax, ay);
-    ctx.lineTo(ax - Math.cos(angle + 0.4) * hLen, ay - Math.sin(angle + 0.4) * hLen);
-    ctx.stroke();
-    ctx.restore();
+  // Speed indicator: longer glow when moving fast
+  if (speed > 0.5) {
+    drawCircle(vec2(ballX, ballY), BALL_R * 4.0 * glow, rgb(0, 1, 1, Math.min(0.4, speed * 0.05)));
   }
 
   // Splash overlay
   if (!started) {
-    ctx.save();
-    ctx.globalAlpha = 0.7;
-    drawRect(cameraPos, vec2(BOUNDARY_W, BOUNDARY_H), rgb(0.01, 0.01, 0.03));
-    ctx.restore();
+    drawRect(cameraPos, vec2(BOUNDARY_W, BOUNDARY_H), rgb(0.01, 0.01, 0.03, 0.85));
   }
 }
 
