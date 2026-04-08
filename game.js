@@ -598,10 +598,10 @@ function gameInit() {
   initParticles();
 
   // 虚拟摇杆触摸事件（覆盖整个屏幕）
-  canvas.addEventListener('touchstart', _onJoystickStart, { passive: false });
-  canvas.addEventListener('touchmove', _onJoystickMove, { passive: false });
-  canvas.addEventListener('touchend', _onJoystickEnd, { passive: false });
-  canvas.addEventListener('touchcancel', _onJoystickEnd, { passive: false });
+  mainCanvas.addEventListener('touchstart', _onJoystickStart, { passive: false });
+  mainCanvas.addEventListener('touchmove', _onJoystickMove, { passive: false });
+  mainCanvas.addEventListener('touchend', _onJoystickEnd, { passive: false });
+  mainCanvas.addEventListener('touchcancel', _onJoystickEnd, { passive: false });
 }
 
 /** 由 index.html 调用，启动传感器权限并开始游戏 */
@@ -783,7 +783,7 @@ function _onJoystickStart(e) {
   const t = e.touches[0];
   // 屏幕右半边作为摇杆区域（仅在游戏中/校准中激活摇杆）
   if (gameState === 'play' || gameState === 'calibrate') {
-    if (t.clientX > canvas.width * 0.3) {
+    if (t.clientX > mainCanvas.width * 0.3) {
       _joystickActive = true;
       _joystickOrigin = vec2(t.clientX, t.clientY);
       _updateJoystick(t.clientX, t.clientY);
