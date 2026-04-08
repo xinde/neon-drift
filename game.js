@@ -611,11 +611,14 @@ window.startGame = async function() {
     sensorStatus = 'NO_HTTPS';
   }
   if (sensor) {
-    // 直接请求权限，不设超时（浏览器自有超时保护）
-    // Android/桌面：立即返回 true（无需弹窗）
-    // iOS 13+：显示系统对话框，等待用户响应
-    const granted = await sensor.requestPermission();
-    if (granted === true) {
+    // 超时保护：某些设备上 requestPermission 可能永不 resolve
+    const permissionPromise = sensor.requestPermission();
+    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('timeout'), 3000));
+    const granted = await Promise.race([permissionPromise, timeoutPromise]);
+    if (granted === 'timeout') {
+      sensorStatus = 'TIMEOUT';
+      console.warn('[Game] Sensor permission timed out');
+    } else if (granted === true) {
       sensor.start();
       sensorAvailable = true;
       sensorStatus = 'ACTIVE';
