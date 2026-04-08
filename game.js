@@ -627,8 +627,16 @@ window.startGame = async function() {
       sensorStatus = 'DENIED';
     }
   }
-  // 切换到校准流程
+  // 切换到校准流程，自动进入游戏（无需再次点击）
   gameState = 'calibrate';
+  // 延迟 0.5s 后自动进入游戏，给校准提示留出显示时间
+  setTimeout(() => {
+    if (gameState === 'calibrate') {
+      if (sensor) sensor.calibrate();
+      gameState = 'play';
+      loadLevel(0);
+    }
+  }, 500);
 };
 
 function gameUpdate() {
