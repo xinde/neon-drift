@@ -15,6 +15,14 @@ canvas{display:block}
 <script src="sensor.js"></script>
 <script>
 // ============ Gyro Test (LittleJS + sensor.js) ============
+// Play area constants (declare first — used below)
+const BOUNDARY_W = 8;
+const BOUNDARY_H = 10;
+const BALL_R = 0.3;
+const FRICTION = 0.94;
+const ACCEL = 15;
+const MAX_SPEED = 6;
+
 // Engine config BEFORE engineInit
 canvasMaxSize = vec2(1920, 1080);
 canvasClearColor = rgb(0.04, 0.04, 0.07, 1);
@@ -23,17 +31,9 @@ canvasPixelated = true;
 cameraScale = 20;
 cameraPos = vec2(BOUNDARY_W / 2, BOUNDARY_H / 2);
 
-// Play area constants
-const BOUNDARY_W = 8;
-const BOUNDARY_H = 10;
-
 let sensor = null;
 let ballX = BOUNDARY_W / 2, ballY = BOUNDARY_H / 2;
 let ballVX = 0, ballVY = 0;
-const BALL_R = 0.3;
-const FRICTION = 0.94;
-const ACCEL = 15;
-const MAX_SPEED = 6;
 
 let statusText = 'TAP TO START';
 let statusColor = rgb(1, 1, 0);
