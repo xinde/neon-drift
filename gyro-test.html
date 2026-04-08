@@ -118,9 +118,9 @@ function gameRender() {
 
   // Grid
   for (let x = 0; x <= BOUNDARY_W; x++)
-    drawLine(vec2(x, 0), vec2(x, BOUNDARY_H), rgb(0, 1, 1), 0.05);
+    drawLine(vec2(x, 0), vec2(x, BOUNDARY_H), 0.05, rgb(0, 1, 1));
   for (let y = 0; y <= BOUNDARY_H; y++)
-    drawLine(vec2(0, y), vec2(BOUNDARY_W, y), rgb(0, 1, 1), 0.05);
+    drawLine(vec2(0, y), vec2(BOUNDARY_W, y), 0.05, rgb(0, 1, 1));
 
   // Border
   drawRect(vec2(BOUNDARY_W / 2, BOUNDARY_H / 2), vec2(BOUNDARY_W, BOUNDARY_H), rgb(0, 0.3, 0.5), 0, 0);
