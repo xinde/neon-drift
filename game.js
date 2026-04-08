@@ -161,7 +161,7 @@ class Ball extends EngineObject {
 
     // 应用加速度
     this.velocity.x += input.x * this.speed * timeDelta;
-    this.velocity.y += -input.y * this.speed * timeDelta;
+    this.velocity.y += input.y * this.speed * timeDelta;
 
     // 阻尼
     this.velocity.x *= .92;
