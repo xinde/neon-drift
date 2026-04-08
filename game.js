@@ -597,6 +597,10 @@ function gameInit() {
   sensor = new SensorInput();
   initParticles();
 
+  // 隐藏启动覆盖层（gameInit 在 engineInit 之后立即执行，保证覆盖层在游戏开始时隐藏）
+  const startScreen = document.getElementById('start-screen');
+  if (startScreen) startScreen.style.display = 'none';
+
   // 虚拟摇杆触摸事件（覆盖整个屏幕）
   mainCanvas.addEventListener('touchstart', _onJoystickStart, { passive: false });
   mainCanvas.addEventListener('touchmove', _onJoystickMove, { passive: false });
