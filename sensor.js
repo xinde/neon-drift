@@ -12,6 +12,11 @@ function isMobile() {
 }
 
 class SensorInput {
+  /** 设备是否支持陀螺仪（静态方法） */
+  static isAvailable() {
+    return typeof DeviceOrientationEvent !== 'undefined';
+  }
+
   constructor() {
     // 方向角 (陀螺仪)
     this.alpha = 0; // Z轴 - 指南针方向 0-360
