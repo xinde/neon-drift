@@ -611,14 +611,11 @@ window.startGame = async function() {
     sensorStatus = 'NO_HTTPS';
   }
   if (sensor) {
-    // 超时保护：某些设备上 requestPermission 可能永不 resolve
-    const permissionPromise = sensor.requestPermission();
-    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('timeout'), 3000));
-    const granted = await Promise.race([permissionPromise, timeoutPromise]);
-    if (granted === 'timeout') {
-      sensorStatus = 'TIMEOUT';
-      console.warn('[Game] Sensor permission timed out');
-    } else if (granted === true) {
+    // 直接请求权限，不设超时（浏览器自有超时保护）
+    // Android/桌面：立即返回 true（无需弹窗）
+    // iOS 13+：显示系统对话框，等待用户响应
+    const granted = await sensor.requestPermission();
+    if (granted === true) {
       sensor.start();
       sensorAvailable = true;
       sensorStatus = 'ACTIVE';
@@ -765,25 +762,27 @@ function gameRenderPost() {
 /** 渲染虚拟摇杆（Canvas 2D 覆盖层） */
 function renderVirtualJoystick() {
   if (!_joystickActive) return;
-  ctx.save();
-  ctx.globalAlpha = 0.5;
+  _joyCtx = _joyCtx || mainCanvas.getContext('2d');
+  _joyCtx.save();
+  _joyCtx.globalAlpha = 0.5;
   // 外圈
-  ctx.beginPath();
-  ctx.arc(_joystickOrigin.x, _joystickOrigin.y, _joystickRadius, 0, Math.PI * 2);
-  ctx.strokeStyle = '#00FFFF';
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  _joyCtx.beginPath();
+  _joyCtx.arc(_joystickOrigin.x, _joystickOrigin.y, _joystickRadius, 0, Math.PI * 2);
+  _joyCtx.strokeStyle = '#00FFFF';
+  _joyCtx.lineWidth = 2;
+  _joyCtx.stroke();
   // 内圈（摇杆位置）
   const knobX = _joystickOrigin.x + _joystickVec.x * _joystickRadius;
   const knobY = _joystickOrigin.y + _joystickVec.y * _joystickRadius;
-  ctx.beginPath();
-  ctx.arc(knobX, knobY, _joystickRadius * 0.4, 0, Math.PI * 2);
-  ctx.fillStyle = '#00FFFF';
-  ctx.fill();
-  ctx.restore();
+  _joyCtx.beginPath();
+  _joyCtx.arc(knobX, knobY, _joystickRadius * 0.4, 0, Math.PI * 2);
+  _joyCtx.fillStyle = '#00FFFF';
+  _joyCtx.fill();
+  _joyCtx.restore();
 }
 
 // ============ 虚拟摇杆触摸处理 ============
+let _joyCtx = null;
 
 function _onJoystickStart(e) {
   // 始终 preventDefault，防止 LittleJS 将触摸转换为鼠标事件导致状态误触发
