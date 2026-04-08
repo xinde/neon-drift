@@ -149,6 +149,7 @@ class Ball extends EngineObject {
     let sensorVec = vec2(0, 0);
     if (sensor && sensor.enabled) {
       sensorVec = sensor.getTiltVector();
+      sensorVec.x = -sensorVec.x; // negate X: tilt left = move left
     } else if (_joystickActive) {
       // 虚拟摇杆：Y轴反向（屏幕向下为正，转为游戏向上为正）
       sensorVec = vec2(_joystickVec.x, -_joystickVec.y);
