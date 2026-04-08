@@ -82,7 +82,7 @@ function gameUpdate() {
   let gx = 0, gy = 0;
   if (started && sensor && sensor.enabled) {
     const t = sensor.getTiltVector();
-    gx = t.x;
+    gx = -t.x; // negate: tilt left = move left
     gy = t.y;
   }
 
