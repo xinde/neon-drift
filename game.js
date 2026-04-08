@@ -602,6 +602,12 @@ function gameInit() {
   mainCanvas.addEventListener('touchmove', _onJoystickMove, { passive: false });
   mainCanvas.addEventListener('touchend', _onJoystickEnd, { passive: false });
   mainCanvas.addEventListener('touchcancel', _onJoystickEnd, { passive: false });
+
+  // 自动隐藏启动覆盖层（防止 LittleJS 触摸事件拦截 DOM 事件）
+  setTimeout(() => {
+    const el = document.getElementById('start-screen');
+    if (el) el.style.display = 'none';
+  }, 500);
 }
 
 /** 由 index.html 调用，启动传感器权限并开始游戏 */
