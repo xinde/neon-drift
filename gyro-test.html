@@ -15,6 +15,13 @@ canvas{display:block}
 <script src="sensor.js"></script>
 <script>
 // ============ Gyro Test (LittleJS + sensor.js) ============
+// Set engine config BEFORE engineInit()
+canvasMaxSize = vec2(1920, 1080);
+canvasClearColor = vec4(0.04, 0.04, 0.07, 1); // match game background
+showSplashScreen = false;
+cameraScale = 20;  // ~20 pixels per world unit
+cameraPos = vec2(8, 5); // center on play area
+
 let sensor = null;
 let ballX = 8, ballY = 5;
 let ballVX = 0, ballVY = 0;
@@ -28,13 +35,8 @@ let statusText = 'TAP TO START';
 let statusColor = rgb(1, 1, 0);
 let started = false;
 
-cameraScale = 50;
-
 function gameInit() {
   sensor = new SensorInput();
-  showSplashScreen = false;
-  canvasMaxSize = vec2(9999, 9999);
-  canvasPixelated = false;
   canvas.addEventListener('pointerdown', onPointer);
 }
 
@@ -108,48 +110,49 @@ function gameUpdate() {
 }
 
 function gameRender() {
-  // Background
-  drawRect(vec2(8, 5), vec2(BOUNDARY, 10), rgb(0.04, 0.04, 0.07));
+  // Background - fills entire camera view
+  drawRect(cameraPos, vec2(BOUNDARY, 10), rgb(0.04, 0.04, 0.07));
 
   // Grid
   ctx.save();
   ctx.globalAlpha = 0.15;
   for (let x = 0; x <= BOUNDARY; x++)
-    drawLine(vec2(x, 0), vec2(x, 10), rgb(0, 1, 1), 0.02);
+    drawLine(vec2(x, 0), vec2(x, 10), rgb(0, 1, 1), 0.05);
   for (let y = 0; y <= 10; y++)
-    drawLine(vec2(0, y), vec2(BOUNDARY, y), rgb(0, 1, 1), 0.02);
+    drawLine(vec2(0, y), vec2(BOUNDARY, y), rgb(0, 1, 1), 0.05);
   ctx.restore();
 
   // Border
   drawRect(vec2(BOUNDARY / 2, 5), vec2(BOUNDARY, 10), rgb(0, 0.3, 0.5), 0, 0);
 
-  // Ball glow - scales with speed
+  // Ball glow
   const speed = Math.sqrt(ballVX * ballVX + ballVY * ballVY);
-  const glow = 1.0 + speed * 0.25;
-  drawCircle(vec2(ballX, ballY), ballRadius * 2.0 * glow, rgb(0, 0.8, 1, 0.15));
-  drawCircle(vec2(ballX, ballY), ballRadius * 1.4 * glow, rgb(0, 1, 1, 0.25));
+  const glow = 1.0 + speed * 0.4;
+  drawCircle(vec2(ballX, ballY), ballRadius * 3.0 * glow, rgb(0, 0.8, 1, 0.15));
+  drawCircle(vec2(ballX, ballY), ballRadius * 2.0 * glow, rgb(0, 1, 1, 0.3));
   drawCircle(vec2(ballX, ballY), ballRadius, rgb(0.9, 1, 1));
   drawCircle(vec2(ballX, ballY), ballRadius * 0.5, rgb(1, 1, 1, 0.9));
 
   // Speed arrow
   if (speed > 0.05) {
     const angle = Math.atan2(-ballVY, ballVX);
-    const arrowEndX = ballX + Math.cos(angle) * (ballRadius * 2 + speed * 0.6);
-    const arrowEndY = ballY - Math.sin(angle) * (ballRadius * 2 + speed * 0.6);
+    const arrowLen = ballRadius * 2 + speed * 0.8;
+    const ax = ballX + Math.cos(angle) * arrowLen;
+    const ay = ballY - Math.sin(angle) * arrowLen;
     ctx.save();
-    ctx.globalAlpha = Math.min(0.9, speed * 0.15);
+    ctx.globalAlpha = Math.min(1.0, speed * 0.2);
     ctx.strokeStyle = '#00FFFF';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(ballX, ballY);
-    ctx.lineTo(arrowEndX, arrowEndY);
+    ctx.lineTo(ax, ay);
     ctx.stroke();
-    const hLen = 6;
+    const hLen = 8;
     ctx.beginPath();
-    ctx.moveTo(arrowEndX, arrowEndY);
-    ctx.lineTo(arrowEndX - Math.cos(angle - 0.4) * hLen, arrowEndY + Math.sin(angle - 0.4) * hLen);
-    ctx.moveTo(arrowEndX, arrowEndY);
-    ctx.lineTo(arrowEndX - Math.cos(angle + 0.4) * hLen, arrowEndY + Math.sin(angle + 0.4) * hLen);
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax - Math.cos(angle - 0.4) * hLen, ay + Math.sin(angle - 0.4) * hLen);
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax - Math.cos(angle + 0.4) * hLen, ay + Math.sin(angle + 0.4) * hLen);
     ctx.stroke();
     ctx.restore();
   }
@@ -158,45 +161,42 @@ function gameRender() {
   if (!started) {
     ctx.save();
     ctx.globalAlpha = 0.7;
-    drawRect(vec2(8, 5), vec2(BOUNDARY, 10), rgb(0.02, 0.02, 0.05));
+    drawRect(cameraPos, vec2(BOUNDARY, 10), rgb(0.01, 0.01, 0.03));
     ctx.restore();
   }
 }
 
 function gameRenderUI() {
   const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
 
-  // Status text centered at top
+  // Status at top center
   drawTextScreen('STATUS: ' + statusText, vec2(cx, 40), 2.5, statusColor);
 
-  // Splash screen text centered
+  // Splash text centered on screen
   if (!started) {
-    drawTextScreen('GYRO TEST', vec2(cx, canvas.height / 2 - 60), 5, rgb(0, 1, 1));
-    drawTextScreen('TAP ANYWHERE', vec2(cx, canvas.height / 2), 2.5, rgb(1, 1, 0));
-    drawTextScreen('Tilt device to move ball', vec2(cx, canvas.height / 2 + 50), 1.2, rgb(0.5, 0.5, 0.5));
+    drawTextScreen('GYRO TEST', vec2(cx, cy - 60), 5, rgb(0, 1, 1));
+    drawTextScreen('TAP ANYWHERE', vec2(cx, cy), 2.5, rgb(1, 1, 0));
+    drawTextScreen('Tilt device to move ball', vec2(cx, cy + 50), 1.5, rgb(0.5, 0.5, 0.5));
   }
 
-  // Gyro data - centered below top status
+  // Gyro data
   let gx = 0, gy = 0;
   if (started && sensor && sensor.enabled) {
     const t = sensor.getTiltVector();
     gx = t.x;
     gy = t.y;
   }
-  const col = (started && sensor && sensor.enabled) ? rgb(0, 1, 1) : rgb(0.4, 0.4, 0.4);
+  const col = (started && sensor && sensor.enabled) ? rgb(0, 1, 1) : rgb(0.5, 0.5, 0.5);
 
-  drawTextScreen('gx: ' + gx.toFixed(3) + '   gy: ' + gy.toFixed(3), vec2(cx, 75), 1.2, col);
-  drawTextScreen('vx: ' + ballVX.toFixed(2) + '   vy: ' + ballVY.toFixed(2), vec2(cx, 95), 1.2, col);
-  drawTextScreen('SPEED: ' + Math.sqrt(ballVX * ballVX + ballVY * ballVY).toFixed(2), vec2(cx, 115), 1.2, col);
+  drawTextScreen('gx: ' + gx.toFixed(3) + '   gy: ' + gy.toFixed(3), vec2(cx, 75), 1.4, col);
+  drawTextScreen('vx: ' + ballVX.toFixed(2) + '   vy: ' + ballVY.toFixed(2), vec2(cx, 97), 1.4, col);
+  drawTextScreen('SPEED: ' + Math.sqrt(ballVX * ballVX + ballVY * ballVY).toFixed(2), vec2(cx, 119), 1.4, col);
 
   // Bottom hint
-  drawTextScreen('(Mobile + HTTPS required for gyro)', vec2(cx, canvas.height - 20), 0.9, rgb(0.25, 0.25, 0.25));
+  drawTextScreen('(Mobile + HTTPS required for gyro)', vec2(cx, canvas.height - 20), 1.0, rgb(0.3, 0.3, 0.3));
 }
 
-canvasMaxSize = vec2(9999, 9999);
-canvasPixelated = false;
-showSplashScreen = false;
-cameraScale = 50;
 engineInit(gameInit, gameUpdate, null, gameRender, gameRenderUI);
 </script>
 </body>
