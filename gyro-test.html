@@ -11,17 +11,16 @@ canvas{display:block}
 </style>
 </head>
 <body>
-<script src="https://cdn.jsdelivr.net/gh/KilledByAPixel/LittleJS@v1.18.0/dist/littlejs.js"></script>
+<script src="littlejs.js"></script>
 <script src="sensor.js"></script>
 <script>
 // ============ Gyro Test (LittleJS + sensor.js) ============
-// Set engine config BEFORE engineInit()
+// Engine config BEFORE engineInit
 canvasMaxSize = vec2(1920, 1080);
-canvasClearColor = rgb(0.04, 0.04, 0.07, 1); // match game background
+canvasClearColor = rgb(0.04, 0.04, 0.07, 1);
 showSplashScreen = false;
-canvasPixelated = true; // 像素风格，避免 HiDPI 模糊
-cameraScale = 20;  // ~20 pixels per world unit
-cameraPos = vec2(8, 5); // center on play area
+cameraScale = 20;
+cameraPos = vec2(8, 5);
 
 let sensor = null;
 let ballX = 8, ballY = 5;
@@ -38,7 +37,6 @@ let started = false;
 
 function gameInit() {
   sensor = new SensorInput();
-  canvas.addEventListener('pointerdown', onPointer);
 }
 
 async function onPointer() {
@@ -71,7 +69,6 @@ async function onPointer() {
     statusText = 'ACTIVE';
     statusColor = rgb(0.2, 1, 0.4);
   } else {
-    // Desktop fallback：传感器未启用但无报错，说明是桌面端或无 HTTPS
     statusText = 'NO HTTPS / DESKTOP';
     statusColor = rgb(1, 0.6, 0);
   }
@@ -109,10 +106,8 @@ function gameUpdate() {
 }
 
 function gameRender() {
-  // Background - fills entire camera view
   drawRect(cameraPos, vec2(BOUNDARY, 10), rgb(0.04, 0.04, 0.07));
 
-  // Grid
   ctx.save();
   ctx.globalAlpha = 0.15;
   for (let x = 0; x <= BOUNDARY; x++)
@@ -121,10 +116,8 @@ function gameRender() {
     drawLine(vec2(0, y), vec2(BOUNDARY, y), rgb(0, 1, 1), 0.05);
   ctx.restore();
 
-  // Border
   drawRect(vec2(BOUNDARY / 2, 5), vec2(BOUNDARY, 10), rgb(0, 0.3, 0.5), 0, 0);
 
-  // Ball glow
   const speed = Math.sqrt(ballVX * ballVX + ballVY * ballVY);
   const glow = 1.0 + speed * 0.4;
   drawCircle(vec2(ballX, ballY), ballRadius * 3.0 * glow, rgb(0, 0.8, 1, 0.15));
@@ -132,7 +125,6 @@ function gameRender() {
   drawCircle(vec2(ballX, ballY), ballRadius, rgb(0.9, 1, 1));
   drawCircle(vec2(ballX, ballY), ballRadius * 0.5, rgb(1, 1, 1, 0.9));
 
-  // Speed arrow
   if (speed > 0.05) {
     const angle = Math.atan2(-ballVY, ballVX);
     const arrowLen = ballRadius * 2 + speed * 0.8;
@@ -156,7 +148,6 @@ function gameRender() {
     ctx.restore();
   }
 
-  // Splash overlay
   if (!started) {
     ctx.save();
     ctx.globalAlpha = 0.7;
@@ -166,20 +157,17 @@ function gameRender() {
 }
 
 function gameRenderUI() {
-  const cx = canvas.width / 2;
-  const cy = canvas.height / 2;
+  const cx = mainCanvas.width / 2;
+  const cy = mainCanvas.height / 2;
 
-  // Status at top center
   drawTextScreen('STATUS: ' + statusText, vec2(cx, 40), 2.5, statusColor);
 
-  // Splash text centered on screen
   if (!started) {
     drawTextScreen('GYRO TEST', vec2(cx, cy - 60), 5, rgb(0, 1, 1));
     drawTextScreen('TAP ANYWHERE', vec2(cx, cy), 2.5, rgb(1, 1, 0));
     drawTextScreen('Tilt device to move ball', vec2(cx, cy + 50), 1.5, rgb(0.5, 0.5, 0.5));
   }
 
-  // Gyro data
   let gx = 0, gy = 0;
   if (started && sensor && sensor.enabled) {
     const t = sensor.getTiltVector();
@@ -192,11 +180,12 @@ function gameRenderUI() {
   drawTextScreen('vx: ' + ballVX.toFixed(2) + '   vy: ' + ballVY.toFixed(2), vec2(cx, 97), 1.4, col);
   drawTextScreen('SPEED: ' + Math.sqrt(ballVX * ballVX + ballVY * ballVY).toFixed(2), vec2(cx, 119), 1.4, col);
 
-  // Bottom hint
-  drawTextScreen('(Mobile + HTTPS required for gyro)', vec2(cx, canvas.height - 20), 1.0, rgb(0.3, 0.3, 0.3));
+  drawTextScreen('(Mobile + HTTPS required for gyro)', vec2(cx, mainCanvas.height - 20), 1.0, rgb(0.3, 0.3, 0.3));
 }
 
+// Pointer listener after engineInit so mainCanvas is defined
 engineInit(gameInit, gameUpdate, null, gameRender, gameRenderUI);
+mainCanvas.addEventListener('pointerdown', onPointer);
 </script>
 </body>
 </html>
