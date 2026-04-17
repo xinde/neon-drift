@@ -144,7 +144,7 @@ class SensorInput {
     if (Math.abs(b) < deadzone) b = 0;
     else b -= Math.sign(b) * deadzone;
 
-    return vec2(g / (90 - deadzone), b / 180);
+    return vec2(g / (90 - deadzone), b / (90 - deadzone));
   }
 
   /** 检测是否发生快速摇动（冲击波触发） */
