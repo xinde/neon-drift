@@ -6,7 +6,8 @@
 <title>Neon Drift</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;background:#0a0a12;overflow:hidden;touch-action:none;-webkit-touch-callout:none}
+html,body{width:100%;height:100%;background:#0a0a12;overflow:hidden}
+canvas{display:block;touch-action:none;-webkit-touch-callout:none}
 /* 启动画面覆盖在 canvas 之上 */
 #start-screen{
   position:fixed;inset:0;z-index:10;
@@ -77,11 +78,19 @@ html,body{width:100%;height:100%;background:#0a0a12;overflow:hidden;touch-action
 <script src="levels/level3.js"></script>
 <script src="game.js"></script>
 <script>
-// 使用 click 事件确保 iOS 权限请求有效
-// touchInputEnable=true 时 LittleJS 会自动处理触摸转鼠标输入
+// 阻止 LittleJS 全局 touch handler 拦截启动画面的触摸事件
+// LittleJS 在 document 级别注册了 touchstart/touchmove/touchend，
+// 并调用 e.preventDefault() 阻止 click 合成。
+// stopPropagation 确保启动画面上的触摸不冒泡到 document，
+// 从而让浏览器正常合成 click 事件（iOS 权限请求需要 click 上下文）。
+var startScreen = document.getElementById('start-screen');
+startScreen.addEventListener('touchstart', function(e) { e.stopPropagation(); }, { passive: true });
+startScreen.addEventListener('touchmove', function(e) { e.stopPropagation(); }, { passive: true });
+startScreen.addEventListener('touchend', function(e) { e.stopPropagation(); }, { passive: true });
+
 document.getElementById('start-btn').addEventListener('click', function(e) {
   e.preventDefault();
-  document.getElementById('start-screen').style.display = 'none';
+  startScreen.style.display = 'none';
   window.startGame();
 });
 </script>
