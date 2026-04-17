@@ -49,29 +49,46 @@ class SensorInput {
     this._calibrated = false;
 
     this.enabled = false;
+
+    // 绑定事件处理器引用（确保 add/remove 使用同一函数引用）
+    this._boundOnOrientation = (e) => this._onOrientation(e);
+    this._boundOnMotion = (e) => this._onMotion(e);
   }
 
-  /** iOS 13+ 请求传感器权限 */
+  /** iOS 13+ 请求传感器权限（同时请求 Orientation 和 Motion） */
   async requestPermission() {
     if (!SensorInput.isAvailable()) return false;
+    // iOS 13+ 需要显式请求 DeviceOrientation 权限
     if (typeof DeviceOrientationEvent !== 'undefined' &&
         typeof DeviceOrientationEvent.requestPermission === 'function') {
       try {
         const perm = await DeviceOrientationEvent.requestPermission();
-        if (perm === 'granted') {
-          console.log('[Sensor] iOS permission granted');
-          return true;
-        } else {
-          console.warn('[Sensor] iOS permission denied:', perm);
+        if (perm !== 'granted') {
+          console.warn('[Sensor] iOS orientation permission denied:', perm);
           return false;
         }
+        console.log('[Sensor] iOS orientation permission granted');
       } catch (e) {
-        console.warn('[Sensor] iOS permission error:', e);
+        console.warn('[Sensor] iOS orientation permission error:', e);
         return false;
       }
     }
-    // Android / 非 iOS 直接返回可用状态
-    return SensorInput.isAvailable();
+    // iOS 13+ 也需要单独请求 DeviceMotion 权限（加速度/摇动检测）
+    if (typeof DeviceMotionEvent !== 'undefined' &&
+        typeof DeviceMotionEvent.requestPermission === 'function') {
+      try {
+        const perm = await DeviceMotionEvent.requestPermission();
+        if (perm !== 'granted') {
+          console.warn('[Sensor] iOS motion permission denied:', perm);
+          // orientation 已授权，motion 被拒：仍可用陀螺仪，但摇动检测不可用
+        } else {
+          console.log('[Sensor] iOS motion permission granted');
+        }
+      } catch (e) {
+        console.warn('[Sensor] iOS motion permission error:', e);
+      }
+    }
+    return true;
   }
 
   /** 启动传感器监听（仅在设备支持时，可安全重复调用） */
@@ -83,8 +100,8 @@ class SensorInput {
       console.warn('[Sensor] DeviceOrientationEvent not supported on this device');
       return;
     }
-    window.addEventListener('deviceorientation', (e) => this._onOrientation(e), true);
-    window.addEventListener('devicemotion', (e) => this._onMotion(e), true);
+    window.addEventListener('deviceorientation', this._boundOnOrientation, true);
+    window.addEventListener('devicemotion', this._boundOnMotion, true);
     this.enabled = true;
     console.log('[Sensor] Started - gamma:', this.gamma, 'beta:', this.beta);
   }
@@ -101,8 +118,8 @@ class SensorInput {
 
   /** 停止传感器监听 */
   stop() {
-    window.removeEventListener('deviceorientation', (e) => this._onOrientation(e), true);
-    window.removeEventListener('devicemotion', (e) => this._onMotion(e), true);
+    window.removeEventListener('deviceorientation', this._boundOnOrientation, true);
+    window.removeEventListener('devicemotion', this._boundOnMotion, true);
     this.enabled = false;
   }
 

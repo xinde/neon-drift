@@ -145,6 +145,9 @@ class Ball extends EngineObject {
   }
 
   update() {
+    // LittleJS 自动调用此方法，仅在 play 状态执行游戏逻辑
+    if (gameState !== 'play') return;
+
     // 获取输入：传感器优先，无传感器时使用虚拟摇杆，PC 端使用键盘
     let sensorVec = vec2(0, 0);
     if (sensor && sensor.enabled) {
@@ -390,17 +393,16 @@ class ExitDoor extends EngineObject {
 function loadLevel(index) {
   currentLevelIndex = index;
   levelData = LEVELS[index];
+  // 销毁旧对象（从 LittleJS 引擎列表中移除，防止内存泄漏和双重更新）
+  if (playerBall) { playerBall.destroy(); playerBall = null; }
+  for (const c of crystals) c.destroy();
+  for (const h of hazards) h.destroy();
+  if (exitDoor) { exitDoor.destroy(); exitDoor = null; }
   crystals = [];
   hazards = [];
-  exitDoor = null;
   collectedCrystals = 0;
   totalCrystals = 0;
   backgroundSpawned = false;
-  // 每次进入新关卡重置位置
-  if (playerBall) {
-    playerBall.pos = vec2(0, 0);
-    playerBall.velocity = vec2(0, 0);
-  }
 
   // 遍历地图
   for (let y = 0; y < levelData.height; y++) {
@@ -514,11 +516,11 @@ function drawDebug() {
   // 背景半透明遮罩
   const debugInfo = [
     '--- SENSOR DEBUG ---',
-    'alpha: ' + (sensor.alpha ?? 'null').toFixed(1),
-    'beta: ' + (sensor.beta ?? 'null').toFixed(1),
-    'gamma: ' + (sensor.gamma ?? 'null').toFixed(1),
+    'alpha: ' + (sensor.alpha != null ? sensor.alpha.toFixed(1) : 'null'),
+    'beta: ' + (sensor.beta != null ? sensor.beta.toFixed(1) : 'null'),
+    'gamma: ' + (sensor.gamma != null ? sensor.gamma.toFixed(1) : 'null'),
     '--- TILT VECTOR ---',
-    'tilt: (' + (sensor.getTiltVector().x ?? 0).toFixed(3) + ', ' + (sensor.getTiltVector().y ?? 0).toFixed(3) + ')',
+    'tilt: (' + (sensor.getTiltVector().x).toFixed(3) + ', ' + (sensor.getTiltVector().y).toFixed(3) + ')',
     '--- STATUS ---',
     'sensor.enabled: ' + sensor.enabled,
     'calibrated: ' + sensor._calibrated,
@@ -597,21 +599,12 @@ function gameInit() {
   sensor = new SensorInput();
   initParticles();
 
-  // 隐藏启动覆盖层（gameInit 在 engineInit 之后立即执行，保证覆盖层在游戏开始时隐藏）
-  const startScreen = document.getElementById('start-screen');
-  if (startScreen) startScreen.style.display = 'none';
-
   // 虚拟摇杆触摸事件（覆盖整个屏幕）
   mainCanvas.addEventListener('touchstart', _onJoystickStart, { passive: false });
   mainCanvas.addEventListener('touchmove', _onJoystickMove, { passive: false });
   mainCanvas.addEventListener('touchend', _onJoystickEnd, { passive: false });
   mainCanvas.addEventListener('touchcancel', _onJoystickEnd, { passive: false });
 
-  // 自动隐藏启动覆盖层（防止 LittleJS 触摸事件拦截 DOM 事件）
-  setTimeout(() => {
-    const el = document.getElementById('start-screen');
-    if (el) el.style.display = 'none';
-  }, 500);
 }
 
 /** 由 index.html 调用，启动传感器权限并开始游戏 */
@@ -683,9 +676,7 @@ function gameUpdate() {
 }
 
 function gameUpdatePost() {
-  if (gameState === 'play' && playerBall) {
-    playerBall.update();
-  }
+  // Ball 的 update 由 LittleJS 引擎自动调用，无需手动调用
 }
 
 function gameRender() {
@@ -730,21 +721,18 @@ function gameRender() {
     }
   }
 
-  // 绘制晶体
+  // 绘制晶体（update 由 LittleJS 引擎自动调用）
   for (const c of crystals) {
-    c.update();
     c.render();
   }
 
   // 绘制暗礁
   for (const h of hazards) {
-    h.update();
     h.render();
   }
 
   // 绘制终点
   if (exitDoor) {
-    exitDoor.update();
     exitDoor.render();
   }
 
@@ -798,11 +786,11 @@ function renderVirtualJoystick() {
 let _joyCtx = null;
 
 function _onJoystickStart(e) {
-  // 始终 preventDefault，防止 LittleJS 将触摸转换为鼠标事件导致状态误触发
-  e.preventDefault();
   const t = e.touches[0];
-  // 屏幕右半边作为摇杆区域（仅在游戏中/校准中激活摇杆）
+  // 仅在游戏中/校准中激活摇杆并阻止默认行为
+  // 其他状态（splash, levelcomplete, win, gameover）不阻止，让 LittleJS 正常处理触摸转鼠标
   if (gameState === 'play' || gameState === 'calibrate') {
+    e.preventDefault();
     if (t.clientX > mainCanvas.width * 0.3) {
       _joystickActive = true;
       _joystickOrigin = vec2(t.clientX, t.clientY);
