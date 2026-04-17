@@ -262,6 +262,10 @@ class Ball extends EngineObject {
     }
   }
 
+  /** Ball 自行管理物理（碰撞、阻尼、位移），跳过引擎默认的 updatePhysics
+   *  防止 LittleJS 在 update() 之后再次将 velocity 叠加到 pos（双重位移） */
+  updatePhysics() {}
+
   render() {
     // 外发光圆
     drawCircle(this.pos, this.radius, rgb(0, .8, 1));
@@ -345,6 +349,7 @@ class Ball extends EngineObject {
 class Crystal extends EngineObject {
   constructor(pos) {
     super(pos, vec2(0.4));
+    this.mass = 0; // 静态对象，跳过引擎物理
     this.angle = 0;
   }
   update() {
@@ -363,6 +368,7 @@ class Crystal extends EngineObject {
 class Hazard extends EngineObject {
   constructor(pos) {
     super(pos, vec2(0.7));
+    this.mass = 0; // 静态对象
     this.pulse = rand(PI * 2);
   }
   update() {
@@ -378,6 +384,7 @@ class Hazard extends EngineObject {
 class ExitDoor extends EngineObject {
   constructor(pos) {
     super(pos, vec2(1));
+    this.mass = 0; // 静态对象
   }
   update() {
     this.angle += timeDelta * 1.5;
@@ -615,8 +622,9 @@ window.startGame = async function() {
   }
   if (sensor) {
     // 超时保护：某些设备上 requestPermission 可能永不 resolve
+    // iOS 需要两次权限对话框（Orientation + Motion），给足 8 秒
     const permissionPromise = sensor.requestPermission();
-    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('timeout'), 3000));
+    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('timeout'), 8000));
     const granted = await Promise.race([permissionPromise, timeoutPromise]);
     if (granted === 'timeout') {
       sensorStatus = 'TIMEOUT';
@@ -630,16 +638,24 @@ window.startGame = async function() {
       sensorStatus = 'DENIED';
     }
   }
-  // 切换到校准流程，自动进入游戏（无需再次点击）
+  // 切换到校准流程
   gameState = 'calibrate';
-  // 延迟 0.5s 后自动进入游戏，给校准提示留出显示时间
+  // 延迟 1s 后自动进入游戏，给传感器数据充分时间收敛
   setTimeout(() => {
     if (gameState === 'calibrate') {
+      // 验证传感器是否真正在发送数据（beta/gamma 非零表示有数据）
+      if (sensor && sensor.enabled) {
+        if (sensor.beta === 0 && sensor.gamma === 0 && sensor.alpha === 0) {
+          console.warn('[Game] Sensor enabled but no data received, events may not be firing');
+          sensorStatus = 'TIMEOUT';
+          sensorAvailable = false;
+        }
+      }
       if (sensor) sensor.calibrate();
       gameState = 'play';
       loadLevel(0);
     }
-  }, 500);
+  }, 1000);
 };
 
 function gameUpdate() {
