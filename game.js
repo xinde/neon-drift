@@ -159,6 +159,8 @@ const bgmData = zzfxM(
 function startBGM() {
   if (bgmPlaying) return;
   bgmPlaying = playSamples(bgmData, .15, 1, 0, true);
+  // playSamples 在 audioContext 未激活时返回 undefined，需在 gameUpdate 中重试
+  if (!bgmPlaying) bgmPlaying = null;
 }
 
 // ============ 游戏对象 ============
@@ -512,11 +514,11 @@ function drawCalibrate() {
 }
 
 function drawHUD() {
-  // 晶体计数（右上方）
-  drawTextScreen('\u25C6 ' + collectedCrystals + '/' + totalCrystals, vec2(_rx(), _ry()), 32, rgb(1, 0.8, 0));
+  // 晶体计数（右上方，右对齐）
+  drawTextScreen('\u25C6 ' + collectedCrystals + '/' + totalCrystals, vec2(_rx(), _ry()), 32, rgb(1, 0.8, 0), 0, rgb(0,0,0), 'right');
 
-  // 生命值（左上方）
-  drawTextScreen('\u2665 ' + lives, vec2(20, 20), 32, rgb(1, 0.4, 0.4));
+  // 生命值（左上方，左对齐）
+  drawTextScreen('\u2665 ' + lives, vec2(20, 20), 32, rgb(1, 0.4, 0.4), 0, rgb(0,0,0), 'left');
 
   // 传感器状态指示器
   if (sensor && sensor.enabled) {
@@ -693,6 +695,9 @@ function gameUpdate() {
 
   // FPS 监控 + 低功率模式检测
   updateFPSMonitor();
+
+  // 背景音乐重试（audioContext 需要用户交互后才能激活）
+  if (gameState === 'play' && !bgmPlaying) startBGM();
 
   // 冲击波冷却计时
   shockwaveCooldownTimer = Math.max(0, shockwaveCooldownTimer - timeDelta);
