@@ -133,6 +133,34 @@ function distance(a, b) {
   return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
 }
 
+// ============ 音效 ============
+// 晶体收集音效（清脆的叮铃声）
+const sfxCollect = new Sound([1,.05,537,.02,.12,.14,0,1.5,0,0,200,.06,.03]);
+// 暗礁碰撞音效（低沉的爆炸声）
+const sfxHit = new Sound([1.5,.05,270,.01,.01,.34,4,0,0,0,0,0,0,0,0,.1,.1,.5,.04]);
+// 背景音乐（zzfxM 生成的简约电子循环）
+let bgmPlaying = null;
+const bgmData = zzfxM(
+  // instruments
+  [[,0,77,,,.5,2,,,,,,,,,.05,.5],[,0,440,.04,.2,.3,1,,,,,,,,,.1,,.5,.1],[.5,0,220,,,.7,2,,,,,,,,,.02,.2]],
+  // patterns
+  [
+    // pattern 0 - bass + lead
+    [[1,0,24,,28,,24,,28,,31,,28,,24,,28,,24,,28,,31,,28,,24,,28,,24,,28,,],[2,0,36,,,,36,,,,38,,,,36,,,,36,,,,36,,,,38,,,,36,,,,],[0,.1,24,,28,,31,,28,,24,,28,,31,,33,,24,,28,,31,,28,,24,,28,,31,,33,,]],
+    // pattern 1 - variation
+    [[1,0,28,,31,,28,,24,,28,,31,,33,,28,,31,,28,,24,,28,,31,,33,,28,,31,,],[2,0,38,,,,38,,,,36,,,,38,,,,38,,,,38,,,,36,,,,38,,,,],[0,.1,28,,31,,33,,31,,28,,31,,33,,36,,28,,31,,33,,31,,28,,31,,33,,36,,]],
+  ],
+  // sequence
+  [0,0,1,0,1,1,0,1],
+  // BPM
+  100
+);
+
+function startBGM() {
+  if (bgmPlaying) return;
+  bgmPlaying = playSamples(bgmData, .15, 1, 0, true);
+}
+
 // ============ 游戏对象 ============
 
 /** 玩家光球 */
@@ -210,8 +238,7 @@ class Ball extends EngineObject {
         crystals[i].destroy();
         crystals.splice(i, 1);
         collectedCrystals++;
-        // 晶体收集音效占位 (ZzFX)
-        // zzfx(1, .5, 200, .02, .1, .1, 0, 1.5); // 解压后启用
+        sfxCollect.play();
       }
     }
 
@@ -222,6 +249,7 @@ class Ball extends EngineObject {
         hazards[i].destroy();
         hazards.splice(i, 1);
         lives--;
+        sfxHit.play();
         if (lives <= 0) {
           gameState = 'gameover';
           return;
@@ -508,8 +536,6 @@ function drawHUD() {
     drawTextScreen('LOW-PWR ' + Math.round(fpsAvg) + 'fps', vec2(20, 85), 24, rgb(1, 0.3, 0.3));
   }
 
-  // 调试信息显示（手机端调试用）
-  drawDebug();
 }
 
 /** 绘制调试信息浮层 */
@@ -583,6 +609,7 @@ function handleTouch() {
       if (sensor) sensor.calibrate();
       gameState = 'play';
       loadLevel(0);
+      startBGM();
     } else if (gameState === 'levelcomplete') {
       // 加载下一关（若还有）或胜利
       if (currentLevelIndex < LEVELS.length - 1) {
@@ -654,6 +681,7 @@ window.startGame = async function() {
       if (sensor) sensor.calibrate();
       gameState = 'play';
       loadLevel(0);
+      startBGM();
     }
   }, 1000);
 };
