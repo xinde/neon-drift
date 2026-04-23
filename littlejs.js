@@ -702,7 +702,7 @@ function drawEngineLogo(t)
  *  @type {boolean}
  *  @default
  *  @memberof Debug */
-const debug = true;
+const debug = false;
 
 /** Size to render debug points by default
  *  @type {number}
@@ -714,7 +714,7 @@ const debugPointSize = .5;
  *  @type {boolean}
  *  @default
  *  @memberof Debug */
-let debugWatermark = true;
+let debugWatermark = false;
 
 /** Key code used to toggle debug mode, Esc by default
  *  @type {string}
