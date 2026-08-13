@@ -32,11 +32,11 @@ class SensorInput {
     this._shakeThreshold = 15; // m/s² 突变阈值
 
     // 低通滤波系数（移动端更高=更灵敏，桌面端更低=更平滑）
-    // 优化：原值0.15偏保守，移动端提升至0.25改善响应延迟
+    // 优化：原值0.15偏保守，移动端提升至0.35改善响应延迟（跟手度）
     const mobile = isMobile();
-    this._filterAlpha = mobile ? 0.25 : 0.15;
-    this._filterBeta  = mobile ? 0.25 : 0.15;
-    this._filterGamma = mobile ? 0.25 : 0.15;
+    this._filterAlpha = mobile ? 0.35 : 0.15;
+    this._filterBeta  = mobile ? 0.35 : 0.15;
+    this._filterGamma = mobile ? 0.35 : 0.15;
 
     // 上一帧滤波值
     this._prevAlpha = 0;
