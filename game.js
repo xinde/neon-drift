@@ -192,8 +192,10 @@ class Ball extends EngineObject {
       if (sensor.isStale(time)) {
         sensorVec = vec2(0, 0);
       } else {
+        // 方向映射遵循物理直觉（W3C DeviceOrientation，竖屏正常握持）：
+        //   gamma(右倾+) -> X+(右)，beta(前倾+) -> Y+(屏幕上方/前方)
+        //   二者均不取反，倾斜方向与球滚动方向一致
         sensorVec = sensor.getTiltVector();
-        sensorVec.x = -sensorVec.x; // negate X: tilt left = move left
       }
     } else if (_joystickActive) {
       // 虚拟摇杆：Y轴反向（屏幕向下为正，转为游戏向上为正）
