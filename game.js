@@ -192,11 +192,10 @@ class Ball extends EngineObject {
       if (sensor.isStale(time)) {
         sensorVec = vec2(0, 0);
       } else {
-        // 方向映射遵循物理直觉（W3C DeviceOrientation，竖屏正常握持）：
-        //   gamma(右倾+) -> X+(右)，beta(前倾+) -> Y+(屏幕上方/前方)
-        //   X 不取反；Y 取反以匹配实际握持下的前后方向感受
+        // 方向映射（W3C DeviceOrientation，竖屏正常握持）：
+        //   gamma(右倾+) -> X+(右)，beta(前倾+) -> Y+(屏幕上方/前进)
+        //   LittleJS 世界坐标系 Y+ = 屏幕上方，二者均不取反
         sensorVec = sensor.getTiltVector();
-        sensorVec.y = -sensorVec.y;
       }
     } else if (_joystickActive) {
       // 虚拟摇杆：Y轴反向（屏幕向下为正，转为游戏向上为正）
