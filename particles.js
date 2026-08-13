@@ -20,6 +20,8 @@ function _isMobileDevice() {
 
 /** 获取质量缩放因子（0~1，low=0.4, medium=0.7, high=1.0） */
 function _qualityScale() {
+  // 低功耗模式下进一步压低爆发粒子数（读取 game.js 全局 lowPowerMode）
+  if (typeof lowPowerMode !== 'undefined' && lowPowerMode) return 0.4;
   if (_isMobileDevice()) return 0.7;
   return 1.0;
 }

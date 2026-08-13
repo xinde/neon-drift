@@ -66,7 +66,6 @@ let wallTiles = []; // 预计算的墙体 tile 坐标列表（loadLevel 时构�
 let breathePhase = 0;
 let backgroundSpawned = false;
 // 性能追踪
-let fpsHistory = [];
 let lowPowerMode = false;
 let lowPowerConsecutive = 0;
 // 是否显示性能浮层（?fps=1 或 hash 含 fps）
@@ -75,14 +74,12 @@ const _showPerf = new URLSearchParams(location.search).has('fps') || location.ha
 let shockwaveCooldownTimer = 0;
 
 // ============ 工具函数 ============
-/** FPS 监控与低功率模式检测 */
+/** FPS 监控与低功率模式检测
+ *  注意：LittleJS 用固定时间步长(timeDelta=1/frameRate 恒定)，不能用 1/timeDelta
+ *  衡量真实帧率（永远=60）。改用引擎的 averageFPS（基于真实 rAF 间隔平滑）。 */
 function updateFPSMonitor() {
-  if (timeDelta <= 0) return;
-  const fps = 1 / timeDelta;
-  fpsHistory.push(fps);
-  if (fpsHistory.length > 30) fpsHistory.shift();
-  const avgFps = fpsHistory.reduce((a, b) => a + b, 0) / fpsHistory.length;
-  if (avgFps < (CONFIG.lowPowerEnterFps || 30) && gameState === 'play') {
+  const avgFps = averageFPS || 0;
+  if (avgFps > 0 && avgFps < (CONFIG.lowPowerEnterFps || 30) && gameState === 'play') {
     lowPowerConsecutive++;
     if (lowPowerConsecutive >= CONFIG.lowPowerThreshold && !lowPowerMode) {
       lowPowerMode = true;
@@ -558,8 +555,7 @@ function drawHUD() {
 
   // 低功率模式提示
   if (lowPowerMode) {
-    const fpsAvg = fpsHistory.length > 0 ? fpsHistory.reduce((a, b) => a + b, 0) / fpsHistory.length : 0;
-    drawTextScreen('LOW-PWR ' + Math.round(fpsAvg) + 'fps', vec2(20, 85), 24, rgb(1, 0.3, 0.3));
+    drawTextScreen('LOW-PWR ' + Math.round(averageFPS || 0) + 'fps', vec2(20, 85), 24, rgb(1, 0.3, 0.3));
   }
 
 }
@@ -567,10 +563,9 @@ function drawHUD() {
 /** 性能浮层：?fps=1 时显示实时 FPS / 状态（手机实测用） */
 function drawPerfOverlay() {
   if (!_showPerf) return;
-  const fpsAvg = fpsHistory.length > 0 ? fpsHistory.reduce((a, b) => a + b, 0) / fpsHistory.length : 0;
   const y = mainCanvas.height - 30;
   const tag = lowPowerMode ? ' LP' : '';
-  drawTextScreen(Math.round(fpsAvg) + 'fps' + tag, vec2(mainCanvas.width - 10, y), 22, rgb(0.5, 1, 0.5), 0, rgb(0,0,0), 'right');
+  drawTextScreen(Math.round(averageFPS || 0) + 'fps' + tag, vec2(mainCanvas.width - 10, y), 22, rgb(0.5, 1, 0.5), 0, rgb(0,0,0), 'right');
 }
 
 /** 绘制调试信息浮层 */
@@ -668,6 +663,8 @@ function gameInit() {
   sensor = new SensorInput();
   // 移动端采用更激进的粒子预算，降低加法混合 overdraw
   if (isMobile()) CONFIG.particleBudget = CONFIG.particleBudgetMobile;
+  // 移动端降低球的圆形顶点数（32->16），减少 drawCircle 顶点开销
+  glCircleSides = isMobile() ? 16 : 32;
   initParticles();
 
   // 虚拟摇杆触摸事件（覆盖整个屏幕）
@@ -808,19 +805,23 @@ function gameRender() {
       drawRect(wp, vec2(0.95), rgb(0, 0.3, 0.6), 0);
     }
 
-  // 绘制晶体（update 由 LittleJS 引擎自动调用）
+  // 绘制晶体（update 由 LittleJS 引擎自动调用；视口剔除跳过屏外渲染）
   for (const c of crystals) {
+    if (c.pos.x < minX || c.pos.x > maxX || c.pos.y < minY || c.pos.y > maxY) continue;
     c.render();
   }
 
   // 绘制暗礁
   for (const h of hazards) {
+    if (h.pos.x < minX || h.pos.x > maxX || h.pos.y < minY || h.pos.y > maxY) continue;
     h.render();
   }
 
   // 绘制终点
   if (exitDoor) {
-    exitDoor.render();
+    if (!(exitDoor.pos.x < minX || exitDoor.pos.x > maxX || exitDoor.pos.y < minY || exitDoor.pos.y > maxY)) {
+      exitDoor.render();
+    }
   }
 
   // 绘制玩家
