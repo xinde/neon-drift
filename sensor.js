@@ -22,14 +22,17 @@ class SensorInput {
     this.accX = 0;
     this.accY = 0;
     this.accZ = 0;
+    // 加速度幅值（sqrt(x²+y²+z²)），静止时≈9.8，对朝向变化鲁棒
+    this._accMag = 9.8;
+    this._prevAccMag = 9.8;
 
     // 上一帧数据（用于摇动检测）
-    this._prevAccX = 0;
-    this._prevAccY = 0;
-    this._prevAccZ = 0;
     this._shakeTime = 0;
-    this._shakeCooldown = 0.3; // 秒内不重复触发
-    this._shakeThreshold = 15; // m/s² 突变阈值
+    this._shakeCooldown = 0.5; // 冷却 0.5s，避免走路/手抖连续触发
+    this._shakeThreshold = 4;  // 幅值变化阈值(m/s²)，幅值法比各轴差值之和小一个量级
+    // 心跳：记录最后一次收到 orientation 事件的时间，用于检测 iOS 数据断流
+    this._lastOrientTime = 0;
+    this._staleTimeout = 0.5;  // 超过 0.5s 无新数据视为断流
 
     // 低通滤波系数（移动端更高=更灵敏，桌面端更低=更平滑）
     // 优化：原值0.15偏保守，移动端提升至0.35改善响应延迟（跟手度）
@@ -147,25 +150,30 @@ class SensorInput {
     return vec2(g / (90 - deadzone), b / (90 - deadzone));
   }
 
-  /** 检测是否发生快速摇动（冲击波触发） */
+  /** 检测是否发生快速摇动（冲击波触发）
+   *  使用加速度幅值变化检测，而非各轴差值之和。
+   *  幅值 |a| = sqrt(x²+y²+z²)，静止时≈9.8(重力)且与朝向无关，
+   *  因此倾斜手机(朝向变化)不会误触发，只有真实摇晃(线性加速度)才会触发。 */
   checkShake(currentTime) {
     if (!this.enabled) return false;
     if (currentTime - this._shakeTime < this._shakeCooldown) return false;
-
-    const deltaX = Math.abs(this.accX - this._prevAccX);
-    const deltaY = Math.abs(this.accY - this._prevAccY);
-    const deltaZ = Math.abs(this.accZ - this._prevAccZ);
-    const totalDelta = deltaX + deltaY + deltaZ;
-
-    if (totalDelta > this._shakeThreshold) {
+    const delta = Math.abs(this._accMag - this._prevAccMag);
+    if (delta > this._shakeThreshold) {
       this._shakeTime = currentTime;
       return true;
     }
     return false;
   }
 
+  /** 传感器数据是否断流（iOS 某些情况会停止发送 orientation 事件） */
+  isStale(currentTime) {
+    if (!this.enabled || !this._lastOrientTime) return false;
+    return currentTime - this._lastOrientTime > this._staleTimeout;
+  }
+
   _onOrientation(e) {
     if (e.alpha === null && e.beta === null && e.gamma === null) return;
+    this._lastOrientTime = time; // 心跳：记录最后一次有效数据时间
 
     // 修复 alpha 角 0/360° 环绕问题：计算最短角距离
     let dAlpha = e.alpha - this._prevAlpha;
@@ -187,11 +195,10 @@ class SensorInput {
   _onMotion(e) {
     const a = e.accelerationIncludingGravity;
     if (!a) return;
-    this._prevAccX = this.accX;
-    this._prevAccY = this.accY;
-    this._prevAccZ = this.accZ;
+    this._prevAccMag = this._accMag;
     this.accX = a.x || 0;
     this.accY = a.y || 0;
     this.accZ = a.z || 0;
+    this._accMag = Math.sqrt(this.accX * this.accX + this.accY * this.accY + this.accZ * this.accZ);
   }
 }

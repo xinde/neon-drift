@@ -191,8 +191,13 @@ class Ball extends EngineObject {
     // 获取输入：传感器优先，无传感器时使用虚拟摇杆，PC 端使用键盘
     let sensorVec = vec2(0, 0);
     if (sensor && sensor.enabled) {
-      sensorVec = sensor.getTiltVector();
-      sensorVec.x = -sensorVec.x; // negate X: tilt left = move left
+      // 传感器断流保护：iOS 某些情况会停止发送事件，此时归零输入避免球持续漂移
+      if (sensor.isStale(time)) {
+        sensorVec = vec2(0, 0);
+      } else {
+        sensorVec = sensor.getTiltVector();
+        sensorVec.x = -sensorVec.x; // negate X: tilt left = move left
+      }
     } else if (_joystickActive) {
       // 虚拟摇杆：Y轴反向（屏幕向下为正，转为游戏向上为正）
       sensorVec = vec2(_joystickVec.x, -_joystickVec.y);
@@ -536,8 +541,13 @@ function drawHUD() {
 
   // 传感器状态指示器
   if (sensor && sensor.enabled) {
-    // 绿色小圆点表示陀螺仪活跃
-    drawTextScreen('\u25CF', vec2(20, 55), 24, rgb(0.2, 1, 0.4));
+    if (sensor.isStale(time)) {
+      // 传感器断流：橙色感叹号
+      drawTextScreen('\u26A0 SIGNAL', vec2(20, 55), 20, rgb(1, 0.6, 0));
+    } else {
+      // 绿色小圆点表示陀螺仪活跃
+      drawTextScreen('\u25CF', vec2(20, 55), 24, rgb(0.2, 1, 0.4));
+    }
   } else if (sensorStatus === 'NO_HTTPS') {
     drawTextScreen('\u26A0 HTTPS', vec2(20, 55), 20, rgb(1, 0.6, 0));
   } else if (!sensorAvailable) {
