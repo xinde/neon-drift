@@ -17,18 +17,25 @@ const CONFIG = {
   trailInterval: 0.05,      // 优化：从0.03降至0.05，减少尾迹粒子生成
   glowInterval: 0.05,        // 优化：从0.02降至0.05，减少外晕粒子生成
   // 移动端自适应配置
-  mobileTrailInterval: 0.08, // 移动端更高间隔
-  mobileGlowInterval: 0.08,
+  mobileTrailInterval: 0.1,  // 移动端更高间隔（从0.08调至0.1）
+  mobileGlowInterval: 0.1,
   // 视口剔除边距
   cullMargin: 3,
   // 粒子预算追踪
   particleBudget: 1500,      // 优化：实际预算低于配置上限，留余量
+  particleBudgetMobile: 700, // 移动端更激进的粒子预算
   // 低功率模式阈值（连续低FPS次数）
   lowPowerThreshold: 3,
-  lowPowerTrailInterval: 0.1,
-  lowPowerGlowInterval: 0.1,
+  lowPowerEnterFps: 30,      // 进入低功率模式的平均FPS阈值
+  lowPowerRecoverFps: 40,    // 恢复正常模式的平均FPS阈值（从45降至40，更易恢复）
+  lowPowerTrailInterval: 0.18, // 低功率模式更激进的降频（从0.1调至0.18）
+  lowPowerGlowInterval: 0.18,
   // 冲击波冷却时间
   lowPowerCooldown: 0.5,
+  // 相机
+  cameraScaleMobile: 30,     // 移动端缩放（从20提升，让视口剔除生效、视角更聚焦）
+  cameraScaleDesktop: 24,
+  cameraLerp: 0.15,          // 相机平滑跟随系数（0=不动，1=硬锁）
 };
 
 // ============ 游戏状态 ============
@@ -55,12 +62,15 @@ let collectedCrystals = 0;
 let trailTimer = 0;
 let glowTimer = 0;
 let levelData = LEVELS[0];
+let wallTiles = []; // 预计算的墙体 tile 坐标列表（loadLevel 时构建，避免每帧扫描全图）
 let breathePhase = 0;
 let backgroundSpawned = false;
 // 性能追踪
 let fpsHistory = [];
 let lowPowerMode = false;
 let lowPowerConsecutive = 0;
+// 是否显示性能浮层（?fps=1 或 hash 含 fps）
+const _showPerf = new URLSearchParams(location.search).has('fps') || location.hash.toLowerCase().includes('fps');
 // 冲击波冷却计时
 let shockwaveCooldownTimer = 0;
 
@@ -72,14 +82,14 @@ function updateFPSMonitor() {
   fpsHistory.push(fps);
   if (fpsHistory.length > 30) fpsHistory.shift();
   const avgFps = fpsHistory.reduce((a, b) => a + b, 0) / fpsHistory.length;
-  if (avgFps < 30 && gameState === 'play') {
+  if (avgFps < (CONFIG.lowPowerEnterFps || 30) && gameState === 'play') {
     lowPowerConsecutive++;
     if (lowPowerConsecutive >= CONFIG.lowPowerThreshold && !lowPowerMode) {
       lowPowerMode = true;
     }
   } else {
     lowPowerConsecutive = 0;
-    if (lowPowerMode && avgFps > 45) {
+    if (lowPowerMode && avgFps > (CONFIG.lowPowerRecoverFps || 45)) {
       lowPowerMode = false;
     }
   }
@@ -440,6 +450,7 @@ function loadLevel(index) {
   collectedCrystals = 0;
   totalCrystals = 0;
   backgroundSpawned = false;
+  wallTiles = [];
 
   // 遍历地图
   for (let y = 0; y < levelData.height; y++) {
@@ -447,6 +458,9 @@ function loadLevel(index) {
       const tile = levelData.map[y][x];
       const worldPos = tileToWorld(x, y);
       switch (tile) {
+        case '1':
+          wallTiles.push(vec2(x, y));
+          break;
         case '5':
           playerBall = new Ball(worldPos);
           cameraPos = worldPos.copy();
@@ -538,6 +552,15 @@ function drawHUD() {
     drawTextScreen('LOW-PWR ' + Math.round(fpsAvg) + 'fps', vec2(20, 85), 24, rgb(1, 0.3, 0.3));
   }
 
+}
+
+/** 性能浮层：?fps=1 时显示实时 FPS / 状态（手机实测用） */
+function drawPerfOverlay() {
+  if (!_showPerf) return;
+  const fpsAvg = fpsHistory.length > 0 ? fpsHistory.reduce((a, b) => a + b, 0) / fpsHistory.length : 0;
+  const y = mainCanvas.height - 30;
+  const tag = lowPowerMode ? ' LP' : '';
+  drawTextScreen(Math.round(fpsAvg) + 'fps' + tag, vec2(mainCanvas.width - 10, y), 22, rgb(0.5, 1, 0.5), 0, rgb(0,0,0), 'right');
 }
 
 /** 绘制调试信息浮层 */
@@ -633,6 +656,8 @@ function handleTouch() {
 // ============ LittleJS 回调 ============
 function gameInit() {
   sensor = new SensorInput();
+  // 移动端采用更激进的粒子预算，降低加法混合 overdraw
+  if (isMobile()) CONFIG.particleBudget = CONFIG.particleBudgetMobile;
   initParticles();
 
   // 虚拟摇杆触摸事件（覆盖整个屏幕）
@@ -719,8 +744,14 @@ function gameUpdate() {
   }
 
   if (gameState === 'play' && playerBall) {
-    // 跟随玩家
-    cameraPos = playerBall.pos.copy();
+    // 相机平滑跟随（帧率无关 lerp）+ 像素对齐，消除像素化渲染的亚像素抖动
+    const k = 1 - Math.pow(1 - CONFIG.cameraLerp, timeDelta * 60);
+    cameraPos.x = lerp(cameraPos.x, playerBall.pos.x, k);
+    cameraPos.y = lerp(cameraPos.y, playerBall.pos.y, k);
+    // 对齐到 1/cameraScale 网格，让 tile 边界落在整数像素上，避免 nearest 采样抖动
+    const cs = cameraScale;
+    cameraPos.x = Math.round(cameraPos.x * cs) / cs;
+    cameraPos.y = Math.round(cameraPos.y * cs) / cs;
   }
 }
 
@@ -752,23 +783,20 @@ function gameRender() {
   if (gameState === 'play' || gameState === 'levelcomplete') {
     // 正常游戏逻辑
 
-    // 绘制迷宫墙体（视口剔除：只渲染屏幕范围内的墙体）
-  for (let y = 0; y < levelData.height; y++) {
-    for (let x = 0; x < levelData.width; x++) {
-      if (levelData.map[y][x] === '1') {
-        const wp = tileToWorld(x, y);
-        // 视口剔除：tile 超出视野则跳过
-        const cam = cameraPos;
-        const viewW = getCameraSize().x * 0.5 + CONFIG.cullMargin;
-        const viewH = getCameraSize().y * 0.5 + CONFIG.cullMargin;
-        if (wp.x < cam.x - viewW || wp.x > cam.x + viewW ||
-            wp.y < cam.y - viewH || wp.y > cam.y + viewH) continue;
-        drawRect(wp, vec2(1), rgb(0.1, 0.1, 0.25));
-        // 霓虹边框
-        drawRect(wp, vec2(0.95), rgb(0, 0.3, 0.6), 0);
-      }
+    // 绘制迷宫墙体（使用预计算的 wallTiles + 视口剔除）
+    const cam = cameraPos;
+    const viewW = getCameraSize().x * 0.5 + CONFIG.cullMargin;
+    const viewH = getCameraSize().y * 0.5 + CONFIG.cullMargin;
+    const minX = cam.x - viewW, maxX = cam.x + viewW;
+    const minY = cam.y - viewH, maxY = cam.y + viewH;
+    for (let i = 0; i < wallTiles.length; i++) {
+      const t = wallTiles[i];
+      if (t.x < minX || t.x > maxX || t.y < minY || t.y > maxY) continue;
+      const wp = tileToWorld(t.x, t.y);
+      drawRect(wp, vec2(1), rgb(0.1, 0.1, 0.25));
+      // 霓虹边框
+      drawRect(wp, vec2(0.95), rgb(0, 0.3, 0.6), 0);
     }
-  }
 
   // 绘制晶体（update 由 LittleJS 引擎自动调用）
   for (const c of crystals) {
@@ -807,6 +835,8 @@ function gameRenderPost() {
   if (!(sensor && sensor.enabled) && (gameState === 'play' || gameState === 'calibrate')) {
     renderVirtualJoystick();
   }
+  // 性能浮层（?fps=1）
+  drawPerfOverlay();
 }
 
 /** 渲染虚拟摇杆（Canvas 2D 覆盖层） */
@@ -882,7 +912,7 @@ function _updateJoystick(cx, cy) {
 canvasMaxSize = vec2(1920, 1080); // 最大分辨率（允许 canvas 填满整个视口）
 canvasPixelated = true;           // 像素风格
 showSplashScreen = false;         // 禁用启动画面
-cameraScale = 20;                  // 缩放比例
+cameraScale = isMobile() ? CONFIG.cameraScaleMobile : CONFIG.cameraScaleDesktop; // 移动端更高缩放，视口剔除生效
 touchGamepadEnable = false;        // 禁用虚拟游戏手柄（使用自定义 UI）
 // 注意：touchInputEnable 保持默认 true，让 LittleJS 处理触摸转鼠标输入
 
