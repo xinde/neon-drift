@@ -26,6 +26,18 @@ class SensorInput {
     this._accMag = 9.8;
     this._prevAccMag = 9.8;
 
+    // 加速度计滤波值（用于重力向量倾斜检测，避免 Euler 角万向锁）
+    this._filtAccX = 0;
+    this._filtAccY = 0;
+    this._filtAccZ = 0;
+    // 校准参考值
+    this._refAccX = 0;
+    this._refAccY = 0;
+    this._refAccZ = 0;
+    // 平台符号约定（iOS: gravity, Android: proper accel = -gravity）
+    this._accelSign = 0;
+    this._hasAccel = false;
+
     // 上一帧数据（用于摇动检测）
     this._shakeTime = 0;
     this._shakeCooldown = 0.5; // 冷却 0.5s，避免走路/手抖连续触发
@@ -130,17 +142,54 @@ class SensorInput {
   calibrate() {
     this._refGamma = this.gamma;
     this._refBeta = this.beta;
+    // 同时校准加速度计参考值（用于重力向量倾斜检测）
+    this._refAccX = this._filtAccX;
+    this._refAccY = this._filtAccY;
+    this._refAccZ = this._filtAccZ;
     this._calibrated = true;
+    console.log('[Sensor] Calibrated - refAcc:', this._refAccX.toFixed(2), this._refAccY.toFixed(2), this._refAccZ.toFixed(2), 'sign:', this._accelSign);
   }
 
   /** 获取归一化倾斜向量，范围 [-1, 1]
+   *  优先使用加速度计重力向量（不受万向锁影响），
+   *  回退到 Euler 角（gamma/beta）用于无加速度计数据的设备。
    *  deadzone ±3° */
   getTiltVector() {
     const deadzone = 3;
+
+    // ---- 方式一：加速度计重力向量（推荐，无万向锁）----
+    // 竖屏握持时重力主要在 Y 轴（±9.8），Z≈0
+    //   右倾：重力出现 +X 分量（iOS）或 -X（Android）
+    //   前倾(顶部远离自己)：重力从 Y 向 Z 转移，Z 变化（iOS Z 变负，Android Z 变正）
+    // 用差值检测消除初始握持偏差
+    if (this._hasAccel) {
+      const sign = this._accelSign; // iOS=1(重力为负), Android=-1(重力为正)
+      // X: 右倾 -> deltaX > 0 (iOS), < 0 (Android) -> 乘 sign 统一为右倾=+
+      const gx = (this._filtAccX - this._refAccX) * sign / 9.8;
+      // Z: 前倾 -> deltaZ < 0 (iOS), > 0 (Android) -> 乘 -sign 统一为前倾=+
+      const gz = -(this._filtAccZ - this._refAccZ) * sign / 9.8;
+
+      // 死区处理（将角度死区转为加速度比）
+      const dz = Math.sin(deadzone * Math.PI / 180);
+      let x = gx, y = gz;
+      if (Math.abs(x) < dz) x = 0;
+      else x -= Math.sign(x) * dz;
+      if (Math.abs(y) < dz) y = 0;
+      else y -= Math.sign(y) * dz;
+
+      // 归一化到 [-1, 1]（45° 倾斜时 sin≈0.707）
+      const scale = 1 / (Math.sin(45 * Math.PI / 180) - dz);
+      return vec2(
+        clamp(x * scale, -1, 1),
+        clamp(y * scale, -1, 1)
+      );
+    }
+
+    // ---- 方式二：Euler 角回退（无加速度计数据时）----
     let g = this.gamma - this._refGamma;
     let b = this.beta - this._refBeta;
 
-    // 死区处理：朝零方向收缩，超出死区后重新归一化
+    // 死区处理
     if (Math.abs(g) < deadzone) g = 0;
     else g -= Math.sign(g) * deadzone;
 
@@ -200,5 +249,25 @@ class SensorInput {
     this.accY = a.y || 0;
     this.accZ = a.z || 0;
     this._accMag = Math.sqrt(this.accX * this.accX + this.accY * this.accY + this.accZ * this.accZ);
+
+    // 低通滤波加速度计（用于倾斜检测，避免 Euler 角万向锁）
+    if (!this._hasAccel) {
+      // 首帧直接初始化
+      this._filtAccX = this.accX;
+      this._filtAccY = this.accY;
+      this._filtAccZ = this.accZ;
+      this._hasAccel = true;
+      // 检测平台符号约定：
+      // W3C 规范：静止平放时 accZ≈+9.8（Android 遵循）
+      // iOS Safari：静止平放时 accZ≈-9.8（与规范相反）
+      // 竖屏握持时 accZ≈0，改用重力主轴（Y）检测
+      const gravVal = Math.abs(this.accY) >= Math.abs(this.accZ) ? this.accY : this.accZ;
+      this._accelSign = gravVal < 0 ? 1 : -1; // iOS=1(负重力), Android=-1(正重力)
+    } else {
+      const fa = this._filterAlpha; // 复用已有的滤波系数
+      this._filtAccX = fa * this.accX + (1 - fa) * this._filtAccX;
+      this._filtAccY = fa * this.accY + (1 - fa) * this._filtAccY;
+      this._filtAccZ = fa * this.accZ + (1 - fa) * this._filtAccZ;
+    }
   }
 }
