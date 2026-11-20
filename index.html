@@ -32,12 +32,6 @@ canvas{display:block;touch-action:none;-webkit-touch-callout:none}
   padding:6px 20px;
   border-radius:4px;
 }
-/* 脉冲提示文字 */
-#start-screen .hint{
-  color:#FF00FF;font-size:clamp(1em,3vw,1.5em);
-  animation:pulse 1.5s infinite;
-  margin-bottom:24px;
-}
 /* 开始按钮 */
 #start-btn{
   background:linear-gradient(135deg,#00FFFF,#FF00FF);
@@ -52,23 +46,30 @@ canvas{display:block;touch-action:none;-webkit-touch-callout:none}
 }
 /* 提示文字 */
 #start-screen .tips{
-  color:#555;font-size:0.85em;line-height:1.6;text-align:center;
+  color:#a5aec3;font-size:0.85em;line-height:1.6;text-align:center;
 }
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+#pulse-btn{
+  position:fixed;z-index:5;left:max(18px,env(safe-area-inset-left));
+  bottom:max(22px,env(safe-area-inset-bottom));width:66px;height:66px;
+  border:1px solid #48d4e3;border-radius:50%;background:#0b2537e6;
+  color:#bafaff;font:bold 15px system-ui;touch-action:none;
+}
 </style>
 </head>
 <body>
 <div id="start-screen">
 <h1>NEON DRIFT</h1>
-<p>霓虹漂移 — 倾斜手机控制光球</p>
-<div class="hint">TILT TO PLAY</div>
-<button id="start-btn">开始游戏</button>
+<p>金色晶体能为冲击波充能。收齐后，驶入绿色光门</p>
+
+<button id="start-btn" disabled>开始游戏</button>
 <div class="tips">
-手机：倾斜设备控制 &nbsp;|&nbsp; PC：WASD / 方向键 &nbsp;|&nbsp; 空格：冲击波
+电脑用 WASD 或方向键移动，按空格清除附近暗礁。<br>手机可倾斜或拖动屏幕转向，点冲击波按钮清障。
 </div>
 </div>
 
-<!-- LittleJS 引擎 (CDN) -->
+<button id="pulse-btn" aria-label="释放冲击波" hidden>冲击波</button>
+
+<!-- LittleJS 引擎 -->
 <script src="littlejs.js"></script>
 <!-- 游戏模块 -->
 <script src="sensor.js"></script>

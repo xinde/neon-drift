@@ -208,6 +208,7 @@ class SensorInput {
     if (currentTime - this._shakeTime < this._shakeCooldown) return false;
     const delta = Math.abs(this._accMag - this._prevAccMag);
     if (delta > this._shakeThreshold) {
+      this._prevAccMag = this._accMag; // 一次采样只触发一次，避免断流后重复释放
       this._shakeTime = currentTime;
       return true;
     }
@@ -243,7 +244,7 @@ class SensorInput {
 
   _onMotion(e) {
     const a = e.accelerationIncludingGravity;
-    if (!a) return;
+    if (!a || (a.x == null && a.y == null && a.z == null)) return;
     this._prevAccMag = this._accMag;
     this.accX = a.x || 0;
     this.accY = a.y || 0;

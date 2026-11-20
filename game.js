@@ -12,7 +12,7 @@
 const CONFIG = {
   tileSize: 1,
   ballRadius: 0.25,
-  ballSpeed: 3,
+  ballSpeed: 8,             // 格/秒
   maxParticles: 2000,
   trailInterval: 0.05,      // 优化：从0.03降至0.05，减少尾迹粒子生成
   glowInterval: 0.05,        // 优化：从0.02降至0.05，减少外晕粒子生成
@@ -31,7 +31,8 @@ const CONFIG = {
   lowPowerTrailInterval: 0.18, // 低功率模式更激进的降频（从0.1调至0.18）
   lowPowerGlowInterval: 0.18,
   // 冲击波冷却时间
-  lowPowerCooldown: 0.5,
+  shockwaveCooldown: 3,
+  shockwaveRadius: 2.5,
   // 相机
   cameraScaleMobile: 30,     // 移动端缩放（从20提升，让视口剔除生效、视角更聚焦）
   cameraScaleDesktop: 24,
@@ -44,15 +45,20 @@ let currentLevelIndex = 0;
 const LEVELS = [LEVEL_1, LEVEL_2, LEVEL_3];
 let lives = 3;
 let sensor = null;
-let sensorAvailable = false;   // 传感器是否可用
-let sensorStatus = 'INIT';     // INIT | NO_HTTPS | TIMEOUT | DENIED | ACTIVE
-// 虚拟摇杆（传感器不可用时的触摸后备）
 let _joystickActive = false;   // 是否正在触摸摇杆区域
 let _joystickOrigin = vec2(0, 0);  // 摇杆中心（屏幕坐标）
 let _joystickVec = vec2(0, 0);     // 归一化摇杆方向 [-1, 1]
 let _joystickRadius = 60;     // 摇杆最大半径（像素）
 let keyboardInput = vec2(0, 0);
-let shockwaveKeyDown = false;
+let levelStarted = 0;
+let finishTime = 0;
+let levelBest = 0;
+let newRecord = false;
+let rechargeNoticeUntil = 0;
+let joystickTouchId = null;
+let waveOrigin = null;
+let waveStarted = 0;
+const pulseButton = document.getElementById('pulse-btn');
 let playerBall = null;
 let crystals = [];
 let hazards = [];
@@ -62,7 +68,7 @@ let collectedCrystals = 0;
 let trailTimer = 0;
 let glowTimer = 0;
 let levelData = LEVELS[0];
-let wallTiles = []; // 预计算的墙体 tile 坐标列表（loadLevel 时构建，避免每帧扫描全图）
+let mazeLayer = null;
 let breathePhase = 0;
 let backgroundSpawned = false;
 // 性能追踪
@@ -117,21 +123,6 @@ function isInView(worldPos, margin) {
     worldPos.y < cam.y + size.y + m
   );
 }
-function getTile(pos) {
-  const tx = Math.floor(pos.x);
-  const ty = Math.floor(pos.y);
-  if (ty < 0 || ty >= levelData.height || tx < 0 || tx >= levelData.width) return '1';
-  return levelData.map[ty][tx];
-}
-
-function isWall(pos) {
-  return getTile(pos) === '1';
-}
-
-function worldToTile(worldPos) {
-  return vec2(Math.floor(worldPos.x), Math.floor(worldPos.y));
-}
-
 function tileToWorld(tileX, tileY) {
   return vec2(tileX + 0.5, tileY + 0.5);
 }
@@ -185,67 +176,21 @@ class Ball extends EngineObject {
     // LittleJS 自动调用此方法，仅在 play 状态执行游戏逻辑
     if (gameState !== 'play') return;
 
-    // 获取输入：传感器优先，无传感器时使用虚拟摇杆，PC 端使用键盘
+    // 手指拖动时接管倾斜输入，传感器断流也能继续操控。
     let sensorVec = vec2(0, 0);
-    if (sensor && sensor.enabled) {
-      // 传感器断流保护：iOS 某些情况会停止发送事件，此时归零输入避免球持续漂移
-      if (sensor.isStale(time)) {
-        sensorVec = vec2(0, 0);
-      } else {
-        // 方向映射（W3C DeviceOrientation，竖屏正常握持）：
-        //   gamma(右倾+) -> X+(右)，beta(前倾+) -> Y+(屏幕上方/前进)
-        //   LittleJS 世界坐标系 Y+ = 屏幕上方，二者均不取反
-        sensorVec = sensor.getTiltVector();
-      }
-    } else if (_joystickActive) {
-      // 虚拟摇杆：Y轴反向（屏幕向下为正，转为游戏向上为正）
+    if (_joystickActive) {
       sensorVec = vec2(_joystickVec.x, -_joystickVec.y);
+    } else if (sensor && sensor.enabled && !sensor.isStale(time)) {
+      sensorVec = sensor.getTiltVector();
     }
-    let input = vec2(
-      clamp(sensorVec.x + keyboardInput.x, -1, 1),
-      clamp(sensorVec.y + keyboardInput.y, -1, 1)
-    );
-
-    // 应用加速度
-    this.velocity.x += input.x * this.speed * timeDelta;
-    this.velocity.y += input.y * this.speed * timeDelta;
-
-    // 阻尼
-    this.velocity.x *= .92;
-    this.velocity.y *= .92;
-
-    // 速度上限
-    const spd = this.velocity.length();
-    if (spd > this.speed) this.velocity = this.velocity.normalize().scale(this.speed);
-
-    // 轴分离碰撞检测：先处理 X 轴
-    const newX = this.pos.x + this.velocity.x;
-    if (!this._overlapsWall(newX, this.pos.y)) {
-      this.pos.x = newX;
-    } else {
-      // X 轴撞墙：反弹并找边界
-      this.velocity.x *= -.5;
-      const boundary = this._findWallBoundary(this.pos.x, this.pos.y, Math.sign(this.velocity.x) || 1, 0);
-      this.pos.x = boundary;
-      emitSparks(vec2(this.pos.x, this.pos.y), vec2(Math.sign(this.pos.x - boundary) || -this.velocity.x, 0));
-    }
-
-    // 再处理 Y 轴
-    const newY = this.pos.y + this.velocity.y;
-    if (!this._overlapsWall(this.pos.x, newY)) {
-      this.pos.y = newY;
-    } else {
-      // Y 轴撞墙：反弹并找边界
-      this.velocity.y *= -.5;
-      const boundary = this._findWallBoundary(this.pos.x, this.pos.y, 0, Math.sign(this.velocity.y) || 1);
-      this.pos.y = boundary;
-      emitSparks(vec2(this.pos.x, this.pos.y), vec2(0, Math.sign(this.pos.y - boundary) || -this.velocity.y));
-    }
-
-    // 安全措施：如果仍然卡在墙内，强制推送到最近空位
-    if (this._overlapsWall(this.pos.x, this.pos.y)) {
-      this._pushOutOfWall();
-    }
+    const input = keyboardInput.add(sensorVec).clampLength(1);
+    // 每个固定步向目标速度靠近，松手保留短暂滑行，反向时能及时转弯。
+    const target = input.scale(this.speed);
+    const grip = input.lengthSquared() ? 0.22 : 0.17;
+    this.velocity.x = lerp(this.velocity.x, target.x, grip);
+    this.velocity.y = lerp(this.velocity.y, target.y, grip);
+    this._moveAxis('x');
+    this._moveAxis('y');
 
     // 晶体收集
     for (let i = crystals.length - 1; i >= 0; i--) {
@@ -254,6 +199,10 @@ class Ball extends EngineObject {
         crystals[i].destroy();
         crystals.splice(i, 1);
         collectedCrystals++;
+        if (shockwaveCooldownTimer > 0) {
+          shockwaveCooldownTimer = 0;
+          rechargeNoticeUntil = time + 1;
+        }
         sfxCollect.play();
       }
     }
@@ -276,6 +225,7 @@ class Ball extends EngineObject {
     // 终点检测
     if (exitDoor && distance(this.pos, exitDoor.pos) < this.radius + 0.4) {
       if (collectedCrystals >= totalCrystals) {
+        finishLevel();
         if (currentLevelIndex < LEVELS.length - 1) {
           gameState = 'levelcomplete';
         } else {
@@ -311,81 +261,47 @@ class Ball extends EngineObject {
   updatePhysics() {}
 
   render() {
-    // 外发光圆
-    drawCircle(this.pos, this.radius, rgb(0, .8, 1));
-    // 呼吸效果
-    const pulse = 0.05 * Math.sin(breathePhase);
-    drawCircle(this.pos, this.radius + pulse, rgb(0.3, 1, 1, 0.4));
+    const diameter = this.radius * 2;
+    drawCircle(this.pos, diameter + 0.12 + 0.04 * Math.sin(breathePhase), rgb(0, .8, 1, .35));
+    drawCircle(this.pos, diameter, rgb(.4, 1, 1));
   }
 
-  /** 检查球在指定位置是否与墙壁重叠（检查球周围的多个点） */
-  _overlapsWall(x, y) {
-    const r = this.radius * 0.95;
-    const checks = [
-      [x, y],
-      [x + r, y], [x - r, y],
-      [x, y + r], [x, y - r],
-      [x + r * 0.7, y + r * 0.7], [x - r * 0.7, y - r * 0.7],
-      [x + r * 0.7, y - r * 0.7], [x - r * 0.7, y + r * 0.7],
-    ];
-    for (const [cx, cy] of checks) {
-      if (isWall(worldToTile(vec2(cx, cy)))) return true;
+  _moveAxis(axis) {
+    const speed = this.velocity[axis];
+    const step = speed * timeDelta;
+    const start = this.pos[axis];
+    this.pos[axis] = start + step;
+    if (!this._overlapsWall()) return;
+
+    // 在这一帧的安全起点与碰撞点之间找接触面，保留沿墙的切向速度。
+    let safe = 0, blocked = 1;
+    for (let i = 0; i < 5; i++) {
+      const mid = (safe + blocked) / 2;
+      this.pos[axis] = start + step * mid;
+      if (this._overlapsWall()) blocked = mid;
+      else safe = mid;
+    }
+    this.pos[axis] = start + step * safe;
+    this.velocity[axis] = 0;
+    if (Math.abs(speed) > 3) {
+      const normal = vec2();
+      normal[axis] = -Math.sign(speed);
+      emitSparks(this.pos, normal);
+    }
+  }
+
+  _overlapsWall() {
+    const {x, y} = this.pos;
+    const r = this.radius;
+    for (let ty = Math.floor(y - r); ty <= Math.floor(y + r); ty++) {
+      for (let tx = Math.floor(x - r); tx <= Math.floor(x + r); tx++) {
+        if (levelData.map[ty]?.[tx] && levelData.map[ty][tx] !== '1') continue;
+        const dx = x - clamp(x, tx, tx + 1);
+        const dy = y - clamp(y, ty, ty + 1);
+        if (dx * dx + dy * dy < r * r) return true;
+      }
     }
     return false;
-  }
-
-  /** 沿指定方向找到最近的墙壁边界位置 */
-  _findWallBoundary(x, y, dirX, dirY) {
-    const step = 0.05;
-    const limit = 5;
-    if (dirX === 0 && dirY === 0) return y;
-    if (dirX !== 0) {
-      // 水平方向找墙边界
-      const sign = dirX > 0 ? 1 : -1;
-      let cx = x;
-      for (let i = 0; i < limit; i++) {
-        cx += sign * step;
-        if (!isWall(worldToTile(vec2(cx + this.radius * sign, y)))) {
-          return cx;
-        }
-      }
-      // 回退到安全距离
-      return x - sign * (this.radius + 0.01);
-    } else {
-      // 垂直方向找墙边界
-      const sign = dirY > 0 ? 1 : -1;
-      let cy = y;
-      for (let i = 0; i < limit; i++) {
-        cy += sign * step;
-        if (!isWall(worldToTile(vec2(x, cy + this.radius * sign)))) {
-          return cy;
-        }
-      }
-      return y - sign * (this.radius + 0.01);
-    }
-  }
-
-  /** 如果球卡在墙内，强制将其推出到最近的安全位置 */
-  _pushOutOfWall() {
-    const r = this.radius + 0.02;
-    const angles = 16;
-    for (let i = 0; i < angles; i++) {
-      const angle = (i / angles) * Math.PI * 2;
-      const testX = this.pos.x + Math.cos(angle) * r;
-      const testY = this.pos.y + Math.sin(angle) * r;
-      if (!isWall(worldToTile(vec2(testX, testY)))) {
-        this.pos.x = testX;
-        this.pos.y = testY;
-        this.velocity.x *= 0.3;
-        this.velocity.y *= 0.3;
-        return;
-      }
-    }
-    // 终极回退：直接移到上一帧位置
-    this.pos.x -= this.velocity.x * 2;
-    this.pos.y -= this.velocity.y * 2;
-    this.velocity.x = 0;
-    this.velocity.y = 0;
   }
 }
 
@@ -403,7 +319,7 @@ class Crystal extends EngineObject {
   }
   render() {
     // 菱形晶体
-    drawRect(this.pos, vec2(0.3), rgb(1, .9, 0), this.angle);
+    drawRect(this.pos, vec2(.38), rgb(1, .9, 0), this.angle);
     drawRect(this.pos, vec2(0.15), rgb(1, 1, 1), this.angle);
   }
 }
@@ -420,7 +336,8 @@ class Hazard extends EngineObject {
   }
   render() {
     const p = 0.5 + 0.5 * Math.sin(this.pulse);
-    drawRect(this.pos, vec2(0.6), rgb(1, 0, p * 0.3), 0);
+    drawRect(this.pos, vec2(.48 + .06 * p), rgb(1, .15, .3), PI / 4);
+    drawRect(this.pos, vec2(.16), rgb(.26, .02, .1), PI / 4);
   }
 }
 
@@ -434,6 +351,10 @@ class ExitDoor extends EngineObject {
     this.angle += timeDelta * 1.5;
   }
   render() {
+    if (collectedCrystals < totalCrystals) {
+      drawRect(this.pos, vec2(.55), rgb(.22, .32, .38), this.angle);
+      return;
+    }
     // 旋转光门
     drawRect(this.pos, vec2(0.6), rgb(0.3, 1, 0.3, 0.6), this.angle);
     drawRect(this.pos, vec2(0.3), rgb(0.5, 1, 0.5), 0);
@@ -454,7 +375,20 @@ function loadLevel(index) {
   collectedCrystals = 0;
   totalCrystals = 0;
   backgroundSpawned = false;
-  wallTiles = [];
+  mazeLayer?.destroy();
+  mazeLayer = buildMazeLayer(levelData);
+  levelStarted = time;
+  rechargeNoticeUntil = 0;
+  waveOrigin = null;
+  shockwaveCooldownTimer = 0;
+  _joystickActive = false;
+  _joystickVec = vec2();
+  joystickTouchId = null;
+  levelBest = 0;
+  try {
+    const saved = Number(localStorage.getItem('neon-drift.best.' + index));
+    if (Number.isFinite(saved) && saved > 0) levelBest = saved;
+  } catch { /* 私密浏览仍可正常计时 */ }
 
   // 遍历地图
   for (let y = 0; y < levelData.height; y++) {
@@ -462,9 +396,6 @@ function loadLevel(index) {
       const tile = levelData.map[y][x];
       const worldPos = tileToWorld(x, y);
       switch (tile) {
-        case '1':
-          wallTiles.push(vec2(x, y));
-          break;
         case '5':
           playerBall = new Ball(worldPos);
           cameraPos = worldPos.copy();
@@ -482,8 +413,7 @@ function loadLevel(index) {
       }
     }
   }
-  // 校准传感器
-  if (sensor) sensor.calibrate();
+  followCamera(1);
 }
 
 // ============ 屏幕绘制 ============
@@ -491,75 +421,36 @@ function loadLevel(index) {
 // centerX/Y = 屏幕中心像素，centerScaled = 世界坐标中心
 const _cx = () => mainCanvas.width / 2;
 const _cy = () => mainCanvas.height / 2;
-const _rx = () => mainCanvas.width - 20;
-const _ry = () => 20;
-
-function drawSplash() {
-  drawTextScreen('NEON DRIFT', vec2(_cx(), _cy()), 3, rgb(0, 1, 1));
-  drawTextScreen('Tilt your phone to control', vec2(_cx(), _cy() + 60), 1.5, rgb(0.5, 0.8, 1));
-  drawTextScreen('Tap to Start', vec2(_cx(), _cy() + 100), 1.5, rgb(1, 1, 1));
-  drawTextScreen('Collect all crystals - Avoid hazards - Reach the gate', vec2(_cx(), _cy() + 140), 1, rgb(0.5, 0.5, 1));
+function formatTime(seconds) {
+  return seconds.toFixed(1) + ' 秒';
 }
 
-function drawCalibrate() {
-  drawTextScreen('CALIBRATE', vec2(_cx(), _cy() - 60), 3, rgb(1, 1, 0));
-  drawTextScreen('Hold phone steady and tap', vec2(_cx(), _cy()), 1.5, rgb(0.8, 0.8, 1));
-
-  // 显示传感器状态
-  let statusColor = rgb(0, 1, 1);
-  let statusText = '';
-  if (sensorStatus === 'ACTIVE') {
-    statusText = '\u2713 GYRO ACTIVE';
-    statusColor = rgb(0.2, 1, 0.4);
-  } else if (sensorStatus === 'NO_HTTPS') {
-    statusText = '\u26A0 HTTPS REQUIRED';
-    statusColor = rgb(1, 0.4, 0);
-  } else if (sensorStatus === 'TIMEOUT' || sensorStatus === 'DENIED') {
-    statusText = '\u26A0 GYRO UNAVAILABLE - Touch to steer';
-    statusColor = rgb(1, 0.6, 0);
-  } else {
-    statusText = 'Starting sensor...';
-    statusColor = rgb(0.5, 0.5, 0.5);
+function finishLevel() {
+  finishTime = time - levelStarted;
+  newRecord = !levelBest || finishTime < levelBest;
+  if (newRecord) {
+    levelBest = finishTime;
+    try {
+      localStorage.setItem('neon-drift.best.' + currentLevelIndex, String(levelBest));
+    } catch { /* 存储不可用时仍显示本次成绩 */ }
   }
-  drawTextScreen(statusText, vec2(_cx(), _cy() + 40), 1.2, statusColor);
-
-  // 如果传感器不可用，显示触摸后备提示
-  if (!sensorAvailable) {
-    drawTextScreen('Touch right side of screen to steer', vec2(_cx(), _cy() + 70), 1.0, rgb(0.4, 0.4, 0.6));
-  }
-
-  drawTextScreen('[ TAP TO START ]', vec2(_cx(), _cy() + 110), 1.5, rgb(0, 1, 1));
 }
 
 function drawHUD() {
-  // 晶体计数（右上方，右对齐）
-  drawTextScreen('\u25C6 ' + collectedCrystals + '/' + totalCrystals, vec2(_rx(), _ry()), 32, rgb(1, 0.8, 0), 0, rgb(0,0,0), 'right');
-
-  // 生命值（左上方，左对齐）
-  drawTextScreen('\u2665 ' + lives, vec2(20, 20), 32, rgb(1, 0.4, 0.4), 0, rgb(0,0,0), 'left');
-
-  // 传感器状态指示器
-  if (sensor && sensor.enabled) {
-    if (sensor.isStale(time)) {
-      // 传感器断流：橙色感叹号
-      drawTextScreen('\u26A0 SIGNAL', vec2(20, 55), 20, rgb(1, 0.6, 0));
-    } else {
-      // 绿色小圆点表示陀螺仪活跃
-      drawTextScreen('\u25CF', vec2(20, 55), 24, rgb(0.2, 1, 0.4));
-    }
-  } else if (sensorStatus === 'NO_HTTPS') {
-    drawTextScreen('\u26A0 HTTPS', vec2(20, 55), 20, rgb(1, 0.6, 0));
-  } else if (!sensorAvailable) {
-    // 仅在传感器完全不可用时显示摇杆提示
-    drawTextScreen('JOYSTICK', vec2(20, 55), 20, rgb(0.4, 0.6, 1));
+  const ink = rgb(.03, .04, .1);
+  drawTextScreen('♥ ' + lives, vec2(16, 24), 22, rgb(1, .5, .55), 3, ink, 'left');
+  drawTextScreen('第 ' + (currentLevelIndex + 1) + ' 关 · ' + formatTime(time - levelStarted),
+    vec2(_cx(), 24), 17, WHITE, 3, ink);
+  drawTextScreen('◆ ' + collectedCrystals + '/' + totalCrystals,
+    vec2(mainCanvas.width - 16, 24), 22, NEON.gold, 3, ink, 'right');
+  const gateOpen = collectedCrystals === totalCrystals;
+  let objective = time < rechargeNoticeUntil ? '晶体充能 · 冲击波就绪' : '收集金色晶体';
+  if (gateOpen) objective = '光门已开启 · 前往绿色出口';
+  drawTextScreen(objective, vec2(_cx(), 51), 15, gateOpen ? NEON.green : WHITE, 3, ink);
+  if (!isMobile()) {
+    const hint = shockwaveCooldownTimer > 0 ? '冲击波充能 ' + Math.ceil(shockwaveCooldownTimer) + 's' : '空格 · 冲击波';
+    drawTextScreen(hint, vec2(_cx(), mainCanvas.height - 25), 16, NEON.cyan, 3, ink);
   }
-  // sensorAvailable === true 但 sensor.enabled === false 时：不显示任何提示（权限申请中）
-
-  // 低功率模式提示
-  if (lowPowerMode) {
-    drawTextScreen('LOW-PWR ' + Math.round(averageFPS || 0) + 'fps', vec2(20, 85), 24, rgb(1, 0.3, 0.3));
-  }
-
 }
 
 /** 性能浮层：?fps=1 时显示实时 FPS / 状态（手机实测用） */
@@ -600,24 +491,18 @@ function drawDebug() {
   }
 }
 
-function drawWin() {
-  drawTextScreen('VICTORY!', vec2(_cx(), _cy()), 3, rgb(0, 1, 0));
-  drawTextScreen('All crystals collected', vec2(_cx(), _cy() + 60), 1.5, rgb(0.8, 1, 0.8));
-  drawTextScreen('Refresh to play again', vec2(_cx(), _cy() + 100), 1.5, rgb(0.5, 0.5, 1));
-}
-
-function drawLevelComplete() {
-  drawTextScreen('LEVEL CLEAR!', vec2(_cx(), _cy()), 2.5, rgb(0, 1, 1));
-  const nextLevel = currentLevelIndex + 1;
-  if (nextLevel < LEVELS.length) {
-    drawTextScreen('Next: ' + LEVELS[nextLevel].name, vec2(_cx(), _cy() + 60), 1.5, rgb(0.8, 0.8, 1));
-    drawTextScreen('Tap to continue', vec2(_cx(), _cy() + 100), 1.5, rgb(0.5, 0.5, 1));
-  }
-}
-
-function drawGameOver() {
-  drawTextScreen('GAME OVER', vec2(_cx(), _cy()), 3, rgb(1, 0, 0));
-  drawTextScreen('Refresh to try again', vec2(_cx(), _cy() + 60), 1.5, rgb(1, 0.5, 0.5));
+function drawResult() {
+  const lost = gameState === 'gameover';
+  const next = gameState === 'levelcomplete';
+  const title = lost ? '光球熄灭' : next ? '关卡完成' : '全程通关';
+  const subtitle = lost ? '本关晶体 ' + collectedCrystals + '/' + totalCrystals
+    : formatTime(finishTime) + '  ·  ' + (newRecord ? '个人新纪录' : '最佳 ' + formatTime(levelBest));
+  mainContext.fillStyle = 'rgba(5, 9, 24, .88)';
+  mainContext.fillRect(0, _cy() - 85, mainCanvas.width, 170);
+  drawTextScreen(title, vec2(_cx(), _cy() - 40), 30, lost ? NEON.gold : NEON.cyan);
+  drawTextScreen(subtitle, vec2(_cx(), _cy() + 6), 18, WHITE);
+  drawTextScreen('点击 / 回车 · ' + (next ? '下一关' : lost ? '重试本关' : '再来一局'),
+    vec2(_cx(), _cy() + 48), 16, rgb(.65, .8, 1));
 }
 
 // ============ 输入处理 ============
@@ -629,34 +514,30 @@ function handleKeyboard() {
   if (keyIsDown('ArrowUp')) dy += 1;
   if (keyIsDown('ArrowDown')) dy -= 1;
   keyboardInput = vec2(dx, dy);
-  if (keyIsDown('Space')) shockwaveKeyDown = true;
 }
 
 function handleTouch() {
-  // mouseWasPressed 本身就是每按一次只触发一次，不需要额外标志
-  if (mouseWasPressed(0)) {
-    if (gameState === 'splash') {
-      gameState = 'calibrate';
-    } else if (gameState === 'calibrate') {
-      if (sensor) sensor.calibrate();
-      gameState = 'play';
-      loadLevel(0);
-      startBGM();
-    } else if (gameState === 'levelcomplete') {
-      // 加载下一关（若还有）或胜利
-      if (currentLevelIndex < LEVELS.length - 1) {
-        loadLevel(currentLevelIndex + 1);
-        gameState = 'play';
-      } else {
-        gameState = 'win';
-      }
-    } else if (gameState === 'win' || gameState === 'gameover') {
-      // 胜利/失败后点击：从第一关重新开始
-      lives = 3;
-      currentLevelIndex = 0;
-      loadLevel(0);
-      gameState = 'play';
-    }
+  if (!mouseWasPressed(0) && !keyWasPressed('Enter')) return;
+  if (gameState === 'levelcomplete') loadLevel(currentLevelIndex + 1);
+  else if (gameState === 'gameover' || gameState === 'win') {
+    lives = 3;
+    loadLevel(gameState === 'win' ? 0 : currentLevelIndex);
+  } else return;
+  gameState = 'play';
+}
+
+function fireShockwave() {
+  if (gameState !== 'play' || !playerBall || shockwaveCooldownTimer > 0) return;
+  waveOrigin = playerBall.pos.copy();
+  waveStarted = time;
+  shockwaveCooldownTimer = CONFIG.shockwaveCooldown;
+  emitShockwave(waveOrigin);
+  for (let i = hazards.length - 1; i >= 0; i--) {
+    const hazard = hazards[i];
+    if (distance(waveOrigin, hazard.pos) > CONFIG.shockwaveRadius) continue;
+    emitExplode(hazard.pos);
+    hazard.destroy();
+    hazards.splice(i, 1);
   }
 }
 
@@ -668,6 +549,11 @@ function gameInit() {
   // 移动端降低球的圆形顶点数（32->16），减少 drawCircle 顶点开销
   glCircleSides = isMobile() ? 16 : 32;
   initParticles();
+  document.getElementById('start-btn').disabled = false;
+  pulseButton.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    fireShockwave();
+  });
 
   // 虚拟摇杆触摸事件（覆盖整个屏幕）
   mainCanvas.addEventListener('touchstart', _onJoystickStart, { passive: false });
@@ -679,47 +565,23 @@ function gameInit() {
 
 /** 由 index.html 调用，启动传感器权限并开始游戏 */
 window.startGame = async function() {
-  sensorAvailable = SensorInput.isAvailable();
-  if (!sensorAvailable) {
-    sensorStatus = 'NO_HTTPS';
-  }
-  if (sensor) {
-    // 超时保护：某些设备上 requestPermission 可能永不 resolve
-    // iOS 需要两次权限对话框（Orientation + Motion），给足 8 秒
-    const permissionPromise = sensor.requestPermission();
-    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('timeout'), 8000));
-    const granted = await Promise.race([permissionPromise, timeoutPromise]);
-    if (granted === 'timeout') {
-      sensorStatus = 'TIMEOUT';
-      console.warn('[Game] Sensor permission timed out');
-    } else if (granted === true) {
+  if (isMobile() && SensorInput.isAvailable()) {
+    gameState = 'calibrate';
+    let timeout;
+    const granted = await Promise.race([
+      sensor.requestPermission(),
+      new Promise(resolve => { timeout = setTimeout(() => resolve(false), 8000); }),
+    ]);
+    clearTimeout(timeout);
+    if (granted) {
       sensor.start();
-      sensorAvailable = true;
-      sensorStatus = 'ACTIVE';
-      console.log('[Game] Sensor started');
-    } else if (granted === false) {
-      sensorStatus = 'DENIED';
+      await new Promise(resolve => setTimeout(resolve, 600));
+      sensor.calibrate();
     }
   }
-  // 切换到校准流程
-  gameState = 'calibrate';
-  // 延迟 1s 后自动进入游戏，给传感器数据充分时间收敛
-  setTimeout(() => {
-    if (gameState === 'calibrate') {
-      // 验证传感器是否真正在发送数据（beta/gamma 非零表示有数据）
-      if (sensor && sensor.enabled) {
-        if (sensor.beta === 0 && sensor.gamma === 0 && sensor.alpha === 0) {
-          console.warn('[Game] Sensor enabled but no data received, events may not be firing');
-          sensorStatus = 'TIMEOUT';
-          sensorAvailable = false;
-        }
-      }
-      if (sensor) sensor.calibrate();
-      gameState = 'play';
-      loadLevel(0);
-      startBGM();
-    }
-  }, 1000);
+  loadLevel(0);
+  gameState = 'play';
+  startBGM();
 };
 
 function gameUpdate() {
@@ -736,119 +598,85 @@ function gameUpdate() {
   // 冲击波冷却计时
   shockwaveCooldownTimer = Math.max(0, shockwaveCooldownTimer - timeDelta);
 
-  // 传感器摇动触发冲击波（手机端）
-  if (sensor && sensor.enabled) {
-    if (sensor.checkShake(time) && shockwaveCooldownTimer <= 0) {
-      shockwaveCooldownTimer = CONFIG.lowPowerCooldown || 0.5;
-      emitShockwave(playerBall ? playerBall.pos : cameraPos, sensor.getTiltVector());
-    }
-  }
-  // 空格键触发冲击波（桌面端，始终可用）
-  if (keyWasPressed('Space') || shockwaveKeyDown) {
-    shockwaveKeyDown = false;
-    if (shockwaveCooldownTimer <= 0) {
-      shockwaveCooldownTimer = CONFIG.lowPowerCooldown || 0.5;
-      emitShockwave(playerBall ? playerBall.pos : cameraPos, vec2(1, 0));
-    }
-  }
-
-  if (gameState === 'play' && playerBall) {
-    // 相机平滑跟随（帧率无关 lerp）+ 像素对齐，消除像素化渲染的亚像素抖动
-    const k = 1 - Math.pow(1 - CONFIG.cameraLerp, timeDelta * 60);
-    cameraPos.x = lerp(cameraPos.x, playerBall.pos.x, k);
-    cameraPos.y = lerp(cameraPos.y, playerBall.pos.y, k);
-    // 对齐到 1/cameraScale 网格，让 tile 边界落在整数像素上，避免 nearest 采样抖动
-    const cs = cameraScale;
-    cameraPos.x = Math.round(cameraPos.x * cs) / cs;
-    cameraPos.y = Math.round(cameraPos.y * cs) / cs;
+  if (gameState === 'play' && (keyWasPressed('Space') || sensor?.checkShake(time))) {
+    fireShockwave();
   }
 }
 
 function gameUpdatePost() {
-  // Ball 的 update 由 LittleJS 引擎自动调用，无需手动调用
+  if (gameState === 'play' && playerBall) followCamera(CONFIG.cameraLerp);
+}
+
+// 地图放得下时固定全景；小屏幕只在视口内跟随，避免露出大片空白。
+function followCamera(blend) {
+  if (!isMobile()) {
+    const fit = Math.min(mainCanvas.width / (levelData.width + 2),
+      (mainCanvas.height - 120) / levelData.height);
+    cameraScale = clamp(Math.floor(fit), CONFIG.cameraScaleDesktop, 48);
+  }
+  const half = getCameraSize().scale(.5);
+  const x = half.x * 2 >= levelData.width ? levelData.width / 2
+    : clamp(playerBall.pos.x, half.x, levelData.width - half.x);
+  const y = half.y * 2 >= levelData.height ? levelData.height / 2
+    : clamp(playerBall.pos.y, half.y, levelData.height - half.y);
+  cameraPos.x = lerp(cameraPos.x, x, blend);
+  cameraPos.y = lerp(cameraPos.y, y, blend);
+}
+
+// 静态迷宫在进关时绘制一次。游戏过程中引擎只需绘制一张纹理。
+function buildMazeLayer(level) {
+  const size = vec2(level.width, level.height);
+  const tilePixels = 24;
+  const layer = new CanvasLayer(size.scale(.5), size, 0, -2, size.scale(tilePixels), false);
+  const ctx = layer.context;
+  ctx.fillStyle = '#0a101e';
+  ctx.fillRect(0, 0, layer.canvas.width, layer.canvas.height);
+  level.map.forEach((row, y) => {
+    const top = (level.height - 1 - y) * tilePixels;
+    for (let x = 0; x < row.length; x++) {
+      const left = x * tilePixels;
+      if (row[x] === '1') {
+        ctx.fillStyle = '#1a3b5e';
+        ctx.fillRect(left, top, tilePixels, tilePixels);
+        ctx.fillStyle = '#0f203a';
+        ctx.fillRect(left + 1, top + 1, tilePixels - 2, tilePixels - 2);
+      } else {
+        ctx.fillStyle = '#22304a';
+        ctx.fillRect(left + tilePixels / 2, top + tilePixels / 2, 1, 1);
+      }
+    }
+  });
+  layer.updateWebGL();
+  return layer;
 }
 
 function gameRender() {
-  // 绘制背景
-  drawRect(cameraPos, getCameraSize(), rgb(0.02, 0.02, 0.08));
-
-  if (gameState === 'splash') {
-    drawSplash();
-    return;
-  }
-  if (gameState === 'calibrate') {
-    drawCalibrate();
-    return;
-  }
-  if (gameState === 'win') {
-    drawWin();
-  } else if (gameState === 'gameover') {
-    drawGameOver();
-  } else if (gameState === 'levelcomplete') {
-    // 显示关卡完成文字，底层游戏画面保持可见
-    drawLevelComplete();
-  }
-
-  if (gameState === 'play' || gameState === 'levelcomplete') {
-    // 正常游戏逻辑
-
-    // 绘制迷宫墙体（使用预计算的 wallTiles + 视口剔除）
-    const cam = cameraPos;
-    const viewW = getCameraSize().x * 0.5 + CONFIG.cullMargin;
-    const viewH = getCameraSize().y * 0.5 + CONFIG.cullMargin;
-    const minX = cam.x - viewW, maxX = cam.x + viewW;
-    const minY = cam.y - viewH, maxY = cam.y + viewH;
-    for (let i = 0; i < wallTiles.length; i++) {
-      const t = wallTiles[i];
-      if (t.x < minX || t.x > maxX || t.y < minY || t.y > maxY) continue;
-      const wp = tileToWorld(t.x, t.y);
-      drawRect(wp, vec2(1), rgb(0.1, 0.1, 0.25));
-      // 霓虹边框
-      drawRect(wp, vec2(0.95), rgb(0, 0.3, 0.6), 0);
-    }
-
-  // 绘制晶体（update 由 LittleJS 引擎自动调用；视口剔除跳过屏外渲染）
-  for (const c of crystals) {
-    if (c.pos.x < minX || c.pos.x > maxX || c.pos.y < minY || c.pos.y > maxY) continue;
-    c.render();
-  }
-
-  // 绘制暗礁
-  for (const h of hazards) {
-    if (h.pos.x < minX || h.pos.x > maxX || h.pos.y < minY || h.pos.y > maxY) continue;
-    h.render();
-  }
-
-  // 绘制终点
-  if (exitDoor) {
-    if (!(exitDoor.pos.x < minX || exitDoor.pos.x > maxX || exitDoor.pos.y < minY || exitDoor.pos.y > maxY)) {
-      exitDoor.render();
-    }
-  }
-
-  // 绘制玩家
-  if (playerBall) {
-    playerBall.render();
-  }
-
-  // HUD（levelcomplete 时也显示晶体计数）
-  drawHUD();
-  }
+  drawRect(cameraPos, getCameraSize(), rgb(.02, .025, .065));
 }
 
 function gameRenderPost() {
-  // 后处理：渲染粒子
-  for (const key in emitters) {
-    emitters[key].update();
-    emitters[key].render();
-  }
-  // 每帧重置粒子预算计数
   resetParticleBudget();
-  // 渲染虚拟摇杆（仅当传感器不可用且在游戏中）
-  if (!(sensor && sensor.enabled) && (gameState === 'play' || gameState === 'calibrate')) {
-    renderVirtualJoystick();
+  const playing = gameState === 'play';
+  const showButton = playing && isMobile();
+  if (pulseButton.hidden === showButton) pulseButton.hidden = !showButton;
+  if (showButton) {
+    const label = shockwaveCooldownTimer > 0 ? Math.ceil(shockwaveCooldownTimer) + 's' : '冲击波';
+    if (pulseButton.textContent !== label) pulseButton.textContent = label;
   }
-  // 性能浮层（?fps=1）
+  if (playing) {
+    const elapsed = time - waveStarted;
+    if (waveOrigin && elapsed < .3) {
+      const progress = elapsed / .3;
+      drawCircle(waveOrigin, 2 * CONFIG.shockwaveRadius * progress, CLEAR_BLACK,
+        .06, rgb(.4, .9, 1, 1 - progress));
+    }
+    drawHUD();
+    renderVirtualJoystick();
+  } else if (gameState === 'calibrate') {
+    drawTextScreen('请握稳手机，准备出发', vec2(_cx(), _cy()), 22, NEON.cyan);
+  } else if (gameState !== 'splash') {
+    drawResult();
+  }
   drawPerfOverlay();
 }
 
@@ -878,33 +706,28 @@ function renderVirtualJoystick() {
 let _joyCtx = null;
 
 function _onJoystickStart(e) {
-  const t = e.touches[0];
-  // 仅在游戏中/校准中激活摇杆并阻止默认行为
-  // 其他状态（splash, levelcomplete, win, gameover）不阻止，让 LittleJS 正常处理触摸转鼠标
-  if (gameState === 'play' || gameState === 'calibrate') {
-    e.preventDefault();
-    if (t.clientX > mainCanvas.width * 0.3) {
-      _joystickActive = true;
-      _joystickOrigin = vec2(t.clientX, t.clientY);
-      _updateJoystick(t.clientX, t.clientY);
-    }
-  }
+  if (gameState !== 'play' || _joystickActive) return;
+  const t = e.changedTouches[0];
+  e.preventDefault();
+  joystickTouchId = t.identifier;
+  _joystickActive = true;
+  _joystickOrigin = vec2(t.clientX, t.clientY);
+  _joystickVec = vec2();
 }
 
 function _onJoystickMove(e) {
-  if (_joystickActive) {
-    e.preventDefault();
-    const t = e.touches[0];
-    _updateJoystick(t.clientX, t.clientY);
-  }
+  const t = Array.from(e.changedTouches).find(t => t.identifier === joystickTouchId);
+  if (!t) return;
+  e.preventDefault();
+  _updateJoystick(t.clientX, t.clientY);
 }
 
 function _onJoystickEnd(e) {
-  if (_joystickActive) {
-    e.preventDefault();
-    _joystickActive = false;
-    _joystickVec = vec2(0, 0);
-  }
+  if (!Array.from(e.changedTouches).some(t => t.identifier === joystickTouchId)) return;
+  e.preventDefault();
+  joystickTouchId = null;
+  _joystickActive = false;
+  _joystickVec = vec2();
 }
 
 function _updateJoystick(cx, cy) {
