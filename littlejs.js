@@ -196,8 +196,8 @@ async function engineInit(gameInit, gameUpdate, gameUpdatePost, gameRender, game
         // update time keeping
         let frameTimeDeltaMS = frameTimeMS - frameTimeLastMS;
         frameTimeLastMS = frameTimeMS;
-        if (debug || debugWatermark)
-            averageFPS = lerp(averageFPS, 1e3/(frameTimeDeltaMS||1), .05);
+        if (frameTimeDeltaMS > 0)
+            averageFPS = lerp(averageFPS || 1e3/frameTimeDeltaMS, 1e3/frameTimeDeltaMS, .05);
         const debugSpeedUp   = debug && keyIsDown('Equal'); // +
         const debugSpeedDown = debug && keyIsDown('Minus'); // -
         if (debug) // +/- to speed/slow time
@@ -339,9 +339,16 @@ async function engineInit(gameInit, gameUpdate, gameUpdatePost, gameRender, game
             }
         }
 
-        // clear main canvas and set size
-        mainCanvas.width  = mainCanvasSize.x;
-        mainCanvas.height = mainCanvasSize.y;
+        // Reset the 2D drawing state without resizing a stable backing store.
+        if (mainCanvas.width !== mainCanvasSize.x || mainCanvas.height !== mainCanvasSize.y)
+        {
+            mainCanvas.width = mainCanvasSize.x;
+            mainCanvas.height = mainCanvasSize.y;
+        }
+        else if (mainContext.reset)
+            mainContext.reset();
+        else
+            mainCanvas.width = mainCanvasSize.x;
 
         // apply the clear color to main canvas
         if (canvasClearColor.a > 0 && !glEnable)
@@ -8191,8 +8198,8 @@ function glPreRender(clear=true)
     if (!glRenderTarget)
     {
         // set to same size as main canvas
-        glCanvas.width = mainCanvasSize.x;
-        glCanvas.height = mainCanvasSize.y;
+        if (glCanvas.width !== mainCanvasSize.x) glCanvas.width = mainCanvasSize.x;
+        if (glCanvas.height !== mainCanvasSize.y) glCanvas.height = mainCanvasSize.y;
     }
     glContext.viewport(0, 0, mainCanvasSize.x, mainCanvasSize.y);
     clear && glClearCanvas();

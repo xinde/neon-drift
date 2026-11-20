@@ -36,12 +36,12 @@ splash → calibrate → play → levelcomplete → win
 Maps are string arrays where each character is a tile (`tileSize = 1` world unit):
 - `'0'` = path, `'1'` = wall, `'2'` = crystal, `'3'` = hazard, `'4'` = exit, `'5'` = player start
 
-Collision detection converts world coords to tile coords via `worldToTile()`, then checks the map array.
+Collision tests the ball against nearby wall tiles, resolving each movement axis separately.
 
 ### Rendering & Coordinate Systems
 - World coordinates — game objects, camera, tiles
 - Screen coordinates — HUD, text overlays via `drawTextScreen()`
-- Camera: `cameraPos` (world), `cameraScale = 20`
+- Camera: `cameraPos` (world), `cameraScale fits the maze on desktop and follows the ball on mobile`
 
 ## LittleJS API Notes
 
@@ -70,8 +70,8 @@ update() {
 
 ## Input Priority
 
-1. Gyroscope (mobile) via `SensorInput.getTiltVector()`
-2. Virtual joystick (touch fallback when no gyroscope)
+1. Dragging takes over steering while a finger is down
+2. Gyroscope (mobile) via `SensorInput.getTiltVector()`
 3. Keyboard (WASD / Arrow keys for movement, Space for shockwave)
 
 Sensor availability: `SensorInput.isAvailable()` — returns false if not HTTPS and not localhost.
@@ -81,7 +81,7 @@ Sensor availability: `SensorInput.isAvailable()` — returns false if not HTTPS 
 - Particle budget: 1500 per frame (`CONFIG.particleBudget`)
 - Low-power mode triggers after 3 consecutive frames < 30fps — reduces trail/glow intervals
 - Mobile-specific intervals in `CONFIG.mobileTrailInterval` / `mobileGlowInterval`
-- Viewport culling: walls outside camera view are skipped in `gameRender()`
+- Static maze walls are baked into one CanvasLayer per level. LittleJS handles object and particle rendering.
 
 ## Adding a New Level
 

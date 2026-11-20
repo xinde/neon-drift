@@ -29,9 +29,8 @@ function _qualityScale() {
 /** 粒子预算检查（缩放后的批次数量） */
 function _budgetCheck(count) {
   const budget = CONFIG.particleBudget || 1500;
-  const scaled = Math.round(count * _qualityScale());
-  if (_particleBudgetUsed + scaled > budget) return false;
-  _particleBudgetUsed += scaled;
+  if (_particleBudgetUsed + count > budget) return false;
+  _particleBudgetUsed += count;
   return true;
 }
 
@@ -63,7 +62,7 @@ function randNeon() {
 function initParticles() {
   // 1. 光球外晕 — 白→青渐变，呼吸动画，additive
   emitters.glow = new ParticleEmitter(
-    vec2(0, 0), 0, .5, 0, 30, PI,
+    vec2(0, 0), 0, .5, 0, 0, PI,
     undefined,
     rgb(1, 1, 1), rgb(0.7, 1, 1),     // colorStart
     rgb(0, 1, 1, 0), rgb(0, 1, 1, 0), // colorEnd 透明
@@ -179,14 +178,12 @@ function emitExplode(pos) {
 }
 
 /** 触发冲击波（沿运动方向扩散圆环，预算 + 缩放） */
-function emitShockwave(pos, dir) {
+function emitShockwave(pos) {
   if (!isInView(pos, 5)) return; // 视口外不生成
   emitters.shockwave.pos = pos.copy();
-  const angle = Math.atan2(dir.y, dir.x);
   const count = Math.round(20 * _qualityScale());
   if (_budgetCheck(count)) {
     for (let i = 0; i < count; i++) {
-      const a = angle + (rand(.5) - .25) * Math.PI;
       emitters.shockwave.emitParticle();
     }
   }
